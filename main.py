@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
-import os
 from pathlib import Path
 import sys
-import uuid
 
 from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
 from models import DEFAULT_MODELS, architecture_from_metadata, is_klein, resolve_settings
+
+from metrics import metrics_main
 
 ROOT = Path(__file__).resolve().parent
 
@@ -74,8 +74,8 @@ def new_output(path, prefix, overwrite=False):
     if path:
         directory = Path(path).expanduser().resolve()
     else:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        directory = ROOT / "runs" / f"{prefix}-{stamp}-{uuid.uuid4().hex[:6]}"
+        stamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y_%m_%d_%H_%M_%S")
+        directory = ROOT / "runs" / f"{prefix}-{stamp}"
     if directory.exists() and any(directory.iterdir()) and not overwrite:
         raise ValueError(f"Output directory is nonempty: {directory}. Choose a new path or --overwrite.")
     directory.mkdir(parents=True, exist_ok=True)
@@ -95,20 +95,24 @@ def edit_parser():
     parser.add_argument("--anchor-concepts", "--anchor_concepts", required=True, help="One anchor, one per target, or an empty string.")
     parser.add_argument("--contextual-anchor", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--context-template-count", type=int, default=30, help="0 means all task templates.")
+    # token option
     parser.add_argument("--token-mode", choices=["full", "subject"], default="full")
     parser.add_argument("--include-padding", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--params", choices=["V", "K", "KV"], default="V")
     parser.add_argument("--condition-branches", choices=["both", "tokens", "pooled"], default="both")
     parser.add_argument("--max-fit-tokens", type=int, default=16, help="SDXL/SD3/FLUX rows per segment/pair; 0 keeps all.")
     parser.add_argument("--encode-batch-size", type=int, default=None, help="Klein defaults to 1; other architectures to 4.")
+    # hyperparameter
+    parser.add_argument("--params", choices=["V", "K", "KV"], default="V")
     parser.add_argument("--beta", type=float, default=1.0)
     parser.add_argument("--rank-rtol", type=float, default=1e-6)
     parser.add_argument("--preserve-rank", type=int, default=None, help="Optional explicit rank truncation; relaxes full retain protection.")
+    # path
+    parser.add_argument("--protect-null", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--retain-path", type=Path, default=None, help="Default: data/instance.csv or data/style.csv.")
     parser.add_argument("--retain-column", default="concept")
     parser.add_argument("--retain-count", type=int, default=128, help="0 disables external retains; -1 uses all (may exhaust null space).")
-    parser.add_argument("--protect-null", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--solve-device", default="cpu")
+    parser.add_argument("--solve-device", default=None, help="Closed-form solver device; defaults to --device.")
+    # selective update
     parser.add_argument("--selective-update", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--selection-order", choices=["proxy", "forward", "reverse", "random"], default="proxy")
     parser.add_argument("--selection-judge", choices=["manual", "vlm"], default="manual")
@@ -117,16 +121,17 @@ def edit_parser():
     parser.add_argument("--probe-steps", type=int, default=8)
     parser.add_argument("--probe-points", type=int, default=3)
     parser.add_argument("--probe-retains", type=int, default=2)
-    parser.add_argument("--judge-base-url", default=os.environ.get("VLM_BASE_URL"))
-    parser.add_argument("--judge-model", default=os.environ.get("VLM_MODEL"))
+    
+    parser.add_argument("--judge-base-url")
+    parser.add_argument("--judge-model")
     parser.add_argument("--judge-key-env", default="VLM_API_KEY")
     parser.add_argument("--judge-timeout", type=float, default=120)
     parser.add_argument("--target-description", default="", help="Optional visual concept/style definition for the VLM.")
+    
     parser.add_argument("--generate", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--checkpoint-path-file", type=Path)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--dry-run", action="store_true", help="Write prompts/config only; no model load, generation or judge calls.")
     return parser
 
 
@@ -135,6 +140,7 @@ def edit_main(argv=None):
     args = parser.parse_args(argv)
     try:
         resolve_settings(args)
+        args.solve_device = args.solve_device or args.device
         validate_sampling(args)
         args.targets = split_concepts(args.target_concepts)
         if len(set(t.casefold() for t in args.targets)) != len(args.targets):
@@ -195,10 +201,6 @@ def edit_main(argv=None):
     write_json(output / "generation_prompts.json", records)
     print(f"[plan] pairs={len(pairs)}, retain concepts={len(retains)}, final images/mode={len(records)}")
     print(f"[output] {output}", flush=True)
-    if args.dry_run:
-        print("[dry-run] No models loaded and no images or judgments requested.")
-        return 0
-
     import torch
     from models import backbone, build_updates, load_pipeline
     from sampling import render_comparison
@@ -263,7 +265,6 @@ def sample_main(argv=None):
                         help="Original root; defaults under runs/: SD1 original, SDXL original_SDXL, SD3 original_SD3, FLUX original_FLUX.")
     parser.add_argument("--save-comparisons", action=argparse.BooleanOptionalAction, default=None,
                         help="Save side-by-side composites; off for benchmark, on otherwise.")
-    parser.add_argument("--dry-run", action="store_true", help="Write the sampling plan without loading a model.")
     args = parser.parse_args(argv)
     try:
         checkpoint = args.checkpoint.expanduser().resolve()
@@ -306,9 +307,6 @@ def sample_main(argv=None):
     write_json(output / "config.json", vars(args))
     write_json(output / "generation_prompts.json", records)
     print(f"[dataset] {len(records)} images/mode; output={output}", flush=True)
-    if args.dry_run:
-        print("[dry-run] No sampling performed.")
-        return 0
     import torch
     from sd import load_controller
     from models import backbone, load_pipeline
@@ -330,10 +328,10 @@ def sample_main(argv=None):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    from metrics import metrics_main
     commands = {"erase": edit_main, "sample": sample_main, "metrics": metrics_main}
     if argv and argv[0] in commands:
         return commands[argv[0]](argv[1:])
+    
     parser = argparse.ArgumentParser(
         description="CASU-2 SD1.x/SDXL/SD3/FLUX: erase concepts or sample a saved checkpoint.",
     )
