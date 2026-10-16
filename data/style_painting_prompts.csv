@@ -1,0 +1,91 @@
+id,concept,prompt
+1,Van Gogh,Van Gogh style painting of the night sky with bold strokes.
+2,Van Gogh,Van Gogh style landscape of rolling hills with dramatic brushwork.
+3,Van Gogh,"Self-portrait in Van Gogh style, showcasing distinctive color and texture."
+4,Van Gogh,Van Gogh style rural scene with dynamic movement and intensity.
+5,Van Gogh,Wheat field under a swirling sky in the style of Van Gogh.
+6,Van Gogh,Van Gogh style transformation of simple cottages into profound scenes.
+7,Van Gogh,Van Gogh style portrait conveying inner turmoil and vitality.
+8,Van Gogh,Seascape in Van Gogh style capturing tumultuous waves and ocean movement.
+9,Van Gogh,Van Gogh style depiction of light on water with delicate brushstrokes.
+10,Van Gogh,"Garden scene in Van Gogh style, emphasizing sunlight and shadow effects."
+11,Van Gogh,Van Gogh style atmospheric haze enveloping the landscape.
+12,Van Gogh,"Haystacks in Van Gogh style, capturing light and color changes."
+13,Van Gogh,Cathedral facade in Van Gogh style with shifting light and shadow.
+14,Van Gogh,Van Gogh style vibrant flower garden in full bloom.
+15,Van Gogh,Van Gogh style painting of boats as a study of color and atmosphere.
+16,Van Gogh,Van Gogh style cliffs along the coastline with blended sea and sky.
+17,Van Gogh,Van Gogh style bustling Paris streets with movement and vitality.
+18,Van Gogh,"Sunrise scene in Van Gogh style, capturing the beauty of dawn."
+19,Van Gogh,Van Gogh style exploration of fog and mist in the landscape.
+20,Van Gogh,Olive trees painted in Van Gogh style.
+21,Van Gogh,Tree painted in Van Gogh style.
+22,Van Gogh,"Women working in the garden, in Van Gogh style."
+23,Van Gogh,Wheat field painting by Van Gogh.
+24,Van Gogh,Trees in bloom painted in Van Gogh style.
+25,Van Gogh,Van Gogh style painting of a tree.
+26,Van Gogh,Wheat field in Van Gogh style.
+27,Van Gogh,Van Gogh style painting of a field with mountains in the background.
+28,Van Gogh,Trees in bloom in the style of Van Gogh.
+29,Van Gogh,"Rocks in the ocean, in Van Gogh style."
+30,Van Gogh,City painting in Van Gogh style.
+31,Picasso,Picasso style painting of the night sky with bold strokes.
+32,Picasso,Picasso style landscape of rolling hills with dramatic brushwork.
+33,Picasso,"Self-portrait in Picasso style, showcasing distinctive color and texture."
+34,Picasso,Picasso style rural scene with dynamic movement and intensity.
+35,Picasso,Wheat field under a swirling sky in the style of Picasso.
+36,Picasso,Picasso style transformation of simple cottages into profound scenes.
+37,Picasso,Picasso style portrait conveying inner turmoil and vitality.
+38,Picasso,Seascape in Picasso style capturing tumultuous waves and ocean movement.
+39,Picasso,Picasso style depiction of light on water with delicate brushstrokes.
+40,Picasso,"Garden scene in Picasso style, emphasizing sunlight and shadow effects."
+41,Picasso,Picasso style atmospheric haze enveloping the landscape.
+42,Picasso,"Haystacks in Picasso style, capturing light and color changes."
+43,Picasso,Cathedral facade in Picasso style with shifting light and shadow.
+44,Picasso,Picasso style vibrant flower garden in full bloom.
+45,Picasso,Picasso style painting of boats as a study of color and atmosphere.
+46,Picasso,Picasso style cliffs along the coastline with blended sea and sky.
+47,Picasso,Picasso style bustling Paris streets with movement and vitality.
+48,Picasso,"Sunrise scene in Picasso style, capturing the beauty of dawn."
+49,Picasso,Picasso style exploration of fog and mist in the landscape.
+50,Picasso,Olive trees painted in Picasso style.
+51,Picasso,Tree painted in Picasso style.
+52,Picasso,"Women working in the garden, in Picasso style."
+53,Picasso,Wheat field painting by Picasso.
+54,Picasso,Trees in bloom painted in Picasso style.
+55,Picasso,Picasso style painting of a tree.
+56,Picasso,Wheat field in Picasso style.
+57,Picasso,Picasso style painting of a field with mountains in the background.
+58,Picasso,Trees in bloom in the style of Picasso.
+59,Picasso,"Rocks in the ocean, in Picasso style."
+60,Picasso,City painting in Picasso style.
+61,Monet,Monet style painting of the night sky with bold strokes.
+62,Monet,Monet style landscape of rolling hills with dramatic brushwork.
+63,Monet,"Self-portrait in Monet style, showcasing distinctive color and texture."
+64,Monet,Monet style rural scene with dynamic movement and intensity.
+65,Monet,Wheat field under a swirling sky in the style of Monet.
+66,Monet,Monet style transformation of simple cottages into profound scenes.
+67,Monet,Monet style portrait conveying inner turmoil and vitality.
+68,Monet,Seascape in Monet style capturing tumultuous waves and ocean movement.
+69,Monet,Monet style depiction of light on water with delicate brushstrokes.
+70,Monet,"Garden scene in Monet style, emphasizing sunlight and shadow effects."
+71,Monet,Monet style atmospheric haze enveloping the landscape.
+72,Monet,"Haystacks in Monet style, capturing light and color changes."
+73,Monet,Cathedral facade in Monet style with shifting light and shadow.
+74,Monet,Monet style vibrant flower garden in full bloom.
+75,Monet,Monet style painting of boats as a study of color and atmosphere.
+76,Monet,Monet style cliffs along the coastline with blended sea and sky.
+77,Monet,Monet style bustling Paris streets with movement and vitality.
+78,Monet,"Sunrise scene in Monet style, capturing the beauty of dawn."
+79,Monet,Monet style exploration of fog and mist in the landscape.
+80,Monet,Olive trees painted in Monet style.
+81,Monet,Tree painted in Monet style.
+82,Monet,"Women working in the garden, in Monet style."
+83,Monet,Wheat field painting by Monet.
+84,Monet,Trees in bloom painted in Monet style.
+85,Monet,Monet style painting of a tree.
+86,Monet,Wheat field in Monet style.
+87,Monet,Monet style painting of a field with mountains in the background.
+88,Monet,Trees in bloom in the style of Monet.
+89,Monet,"Rocks in the ocean, in Monet style."
+90,Monet,City painting in Monet style.

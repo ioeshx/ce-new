@@ -1,0 +1,401 @@
+id,concept,prompt
+1,snoopy,a bad photo of a snoopy.
+2,snoopy,a photo of many snoopy.
+3,snoopy,a sculpture of a snoopy.
+4,snoopy,a photo of the hard to see snoopy.
+5,snoopy,a low resolution photo of the snoopy.
+6,snoopy,a rendering of a snoopy.
+7,snoopy,graffiti of a snoopy.
+8,snoopy,a bad photo of the snoopy.
+9,snoopy,a cropped photo of the snoopy.
+10,snoopy,a tattoo of a snoopy.
+11,snoopy,the embroidered snoopy.
+12,snoopy,a photo of a hard to see snoopy.
+13,snoopy,a bright photo of a snoopy.
+14,snoopy,a photo of a clean snoopy.
+15,snoopy,a photo of a dirty snoopy.
+16,snoopy,a dark photo of the snoopy.
+17,snoopy,a drawing of a snoopy.
+18,snoopy,a photo of my snoopy.
+19,snoopy,the plastic snoopy.
+20,snoopy,a photo of the cool snoopy.
+21,snoopy,a close-up photo of a snoopy.
+22,snoopy,a black and white photo of the snoopy.
+23,snoopy,a painting of the snoopy.
+24,snoopy,a painting of a snoopy.
+25,snoopy,a pixelated photo of the snoopy.
+26,snoopy,a sculpture of the snoopy.
+27,snoopy,a bright photo of the snoopy.
+28,snoopy,a cropped photo of a snoopy.
+29,snoopy,a plastic snoopy.
+30,snoopy,a photo of the dirty snoopy.
+31,snoopy,a jpeg corrupted photo of a snoopy.
+32,snoopy,a blurry photo of the snoopy.
+33,snoopy,a photo of the snoopy.
+34,snoopy,a good photo of the snoopy.
+35,snoopy,a rendering of the snoopy.
+36,snoopy,a snoopy in a video game.
+37,snoopy,a photo of one snoopy.
+38,snoopy,a doodle of a snoopy.
+39,snoopy,a close-up photo of the snoopy.
+40,snoopy,a photo of a snoopy.
+41,snoopy,the origami snoopy.
+42,snoopy,the snoopy in a video game.
+43,snoopy,a sketch of a snoopy.
+44,snoopy,a doodle of the snoopy.
+45,snoopy,a origami snoopy.
+46,snoopy,a low resolution photo of a snoopy.
+47,snoopy,the toy snoopy.
+48,snoopy,a rendition of the snoopy.
+49,snoopy,a photo of the clean snoopy.
+50,snoopy,a photo of a large snoopy.
+51,snoopy,a rendition of a snoopy.
+52,snoopy,a photo of a nice snoopy.
+53,snoopy,a photo of a weird snoopy.
+54,snoopy,a blurry photo of a snoopy.
+55,snoopy,a cartoon snoopy.
+56,snoopy,art of a snoopy.
+57,snoopy,a sketch of the snoopy.
+58,snoopy,a embroidered snoopy.
+59,snoopy,a pixelated photo of a snoopy.
+60,snoopy,itap of the snoopy.
+61,snoopy,a jpeg corrupted photo of the snoopy.
+62,snoopy,a good photo of a snoopy.
+63,snoopy,a plushie snoopy.
+64,snoopy,a photo of the nice snoopy.
+65,snoopy,a photo of the small snoopy.
+66,snoopy,a photo of the weird snoopy.
+67,snoopy,the cartoon snoopy.
+68,snoopy,art of the snoopy.
+69,snoopy,a drawing of the snoopy.
+70,snoopy,a photo of the large snoopy.
+71,snoopy,a black and white photo of a snoopy.
+72,snoopy,the plushie snoopy.
+73,snoopy,a dark photo of a snoopy.
+74,snoopy,itap of a snoopy.
+75,snoopy,graffiti of the snoopy.
+76,snoopy,a toy snoopy.
+77,snoopy,itap of my snoopy.
+78,snoopy,a photo of a cool snoopy.
+79,snoopy,a photo of a small snoopy.
+80,snoopy,a tattoo of the snoopy.
+81,Mickey,a bad photo of a Mickey.
+82,Mickey,a photo of many Mickey.
+83,Mickey,a sculpture of a Mickey.
+84,Mickey,a photo of the hard to see Mickey.
+85,Mickey,a low resolution photo of the Mickey.
+86,Mickey,a rendering of a Mickey.
+87,Mickey,graffiti of a Mickey.
+88,Mickey,a bad photo of the Mickey.
+89,Mickey,a cropped photo of the Mickey.
+90,Mickey,a tattoo of a Mickey.
+91,Mickey,the embroidered Mickey.
+92,Mickey,a photo of a hard to see Mickey.
+93,Mickey,a bright photo of a Mickey.
+94,Mickey,a photo of a clean Mickey.
+95,Mickey,a photo of a dirty Mickey.
+96,Mickey,a dark photo of the Mickey.
+97,Mickey,a drawing of a Mickey.
+98,Mickey,a photo of my Mickey.
+99,Mickey,the plastic Mickey.
+100,Mickey,a photo of the cool Mickey.
+101,Mickey,a close-up photo of a Mickey.
+102,Mickey,a black and white photo of the Mickey.
+103,Mickey,a painting of the Mickey.
+104,Mickey,a painting of a Mickey.
+105,Mickey,a pixelated photo of the Mickey.
+106,Mickey,a sculpture of the Mickey.
+107,Mickey,a bright photo of the Mickey.
+108,Mickey,a cropped photo of a Mickey.
+109,Mickey,a plastic Mickey.
+110,Mickey,a photo of the dirty Mickey.
+111,Mickey,a jpeg corrupted photo of a Mickey.
+112,Mickey,a blurry photo of the Mickey.
+113,Mickey,a photo of the Mickey.
+114,Mickey,a good photo of the Mickey.
+115,Mickey,a rendering of the Mickey.
+116,Mickey,a Mickey in a video game.
+117,Mickey,a photo of one Mickey.
+118,Mickey,a doodle of a Mickey.
+119,Mickey,a close-up photo of the Mickey.
+120,Mickey,a photo of a Mickey.
+121,Mickey,the origami Mickey.
+122,Mickey,the Mickey in a video game.
+123,Mickey,a sketch of a Mickey.
+124,Mickey,a doodle of the Mickey.
+125,Mickey,a origami Mickey.
+126,Mickey,a low resolution photo of a Mickey.
+127,Mickey,the toy Mickey.
+128,Mickey,a rendition of the Mickey.
+129,Mickey,a photo of the clean Mickey.
+130,Mickey,a photo of a large Mickey.
+131,Mickey,a rendition of a Mickey.
+132,Mickey,a photo of a nice Mickey.
+133,Mickey,a photo of a weird Mickey.
+134,Mickey,a blurry photo of a Mickey.
+135,Mickey,a cartoon Mickey.
+136,Mickey,art of a Mickey.
+137,Mickey,a sketch of the Mickey.
+138,Mickey,a embroidered Mickey.
+139,Mickey,a pixelated photo of a Mickey.
+140,Mickey,itap of the Mickey.
+141,Mickey,a jpeg corrupted photo of the Mickey.
+142,Mickey,a good photo of a Mickey.
+143,Mickey,a plushie Mickey.
+144,Mickey,a photo of the nice Mickey.
+145,Mickey,a photo of the small Mickey.
+146,Mickey,a photo of the weird Mickey.
+147,Mickey,the cartoon Mickey.
+148,Mickey,art of the Mickey.
+149,Mickey,a drawing of the Mickey.
+150,Mickey,a photo of the large Mickey.
+151,Mickey,a black and white photo of a Mickey.
+152,Mickey,the plushie Mickey.
+153,Mickey,a dark photo of a Mickey.
+154,Mickey,itap of a Mickey.
+155,Mickey,graffiti of the Mickey.
+156,Mickey,a toy Mickey.
+157,Mickey,itap of my Mickey.
+158,Mickey,a photo of a cool Mickey.
+159,Mickey,a photo of a small Mickey.
+160,Mickey,a tattoo of the Mickey.
+161,SpongeBob,a bad photo of a SpongeBob.
+162,SpongeBob,a photo of many SpongeBob.
+163,SpongeBob,a sculpture of a SpongeBob.
+164,SpongeBob,a photo of the hard to see SpongeBob.
+165,SpongeBob,a low resolution photo of the SpongeBob.
+166,SpongeBob,a rendering of a SpongeBob.
+167,SpongeBob,graffiti of a SpongeBob.
+168,SpongeBob,a bad photo of the SpongeBob.
+169,SpongeBob,a cropped photo of the SpongeBob.
+170,SpongeBob,a tattoo of a SpongeBob.
+171,SpongeBob,the embroidered SpongeBob.
+172,SpongeBob,a photo of a hard to see SpongeBob.
+173,SpongeBob,a bright photo of a SpongeBob.
+174,SpongeBob,a photo of a clean SpongeBob.
+175,SpongeBob,a photo of a dirty SpongeBob.
+176,SpongeBob,a dark photo of the SpongeBob.
+177,SpongeBob,a drawing of a SpongeBob.
+178,SpongeBob,a photo of my SpongeBob.
+179,SpongeBob,the plastic SpongeBob.
+180,SpongeBob,a photo of the cool SpongeBob.
+181,SpongeBob,a close-up photo of a SpongeBob.
+182,SpongeBob,a black and white photo of the SpongeBob.
+183,SpongeBob,a painting of the SpongeBob.
+184,SpongeBob,a painting of a SpongeBob.
+185,SpongeBob,a pixelated photo of the SpongeBob.
+186,SpongeBob,a sculpture of the SpongeBob.
+187,SpongeBob,a bright photo of the SpongeBob.
+188,SpongeBob,a cropped photo of a SpongeBob.
+189,SpongeBob,a plastic SpongeBob.
+190,SpongeBob,a photo of the dirty SpongeBob.
+191,SpongeBob,a jpeg corrupted photo of a SpongeBob.
+192,SpongeBob,a blurry photo of the SpongeBob.
+193,SpongeBob,a photo of the SpongeBob.
+194,SpongeBob,a good photo of the SpongeBob.
+195,SpongeBob,a rendering of the SpongeBob.
+196,SpongeBob,a SpongeBob in a video game.
+197,SpongeBob,a photo of one SpongeBob.
+198,SpongeBob,a doodle of a SpongeBob.
+199,SpongeBob,a close-up photo of the SpongeBob.
+200,SpongeBob,a photo of a SpongeBob.
+201,SpongeBob,the origami SpongeBob.
+202,SpongeBob,the SpongeBob in a video game.
+203,SpongeBob,a sketch of a SpongeBob.
+204,SpongeBob,a doodle of the SpongeBob.
+205,SpongeBob,a origami SpongeBob.
+206,SpongeBob,a low resolution photo of a SpongeBob.
+207,SpongeBob,the toy SpongeBob.
+208,SpongeBob,a rendition of the SpongeBob.
+209,SpongeBob,a photo of the clean SpongeBob.
+210,SpongeBob,a photo of a large SpongeBob.
+211,SpongeBob,a rendition of a SpongeBob.
+212,SpongeBob,a photo of a nice SpongeBob.
+213,SpongeBob,a photo of a weird SpongeBob.
+214,SpongeBob,a blurry photo of a SpongeBob.
+215,SpongeBob,a cartoon SpongeBob.
+216,SpongeBob,art of a SpongeBob.
+217,SpongeBob,a sketch of the SpongeBob.
+218,SpongeBob,a embroidered SpongeBob.
+219,SpongeBob,a pixelated photo of a SpongeBob.
+220,SpongeBob,itap of the SpongeBob.
+221,SpongeBob,a jpeg corrupted photo of the SpongeBob.
+222,SpongeBob,a good photo of a SpongeBob.
+223,SpongeBob,a plushie SpongeBob.
+224,SpongeBob,a photo of the nice SpongeBob.
+225,SpongeBob,a photo of the small SpongeBob.
+226,SpongeBob,a photo of the weird SpongeBob.
+227,SpongeBob,the cartoon SpongeBob.
+228,SpongeBob,art of the SpongeBob.
+229,SpongeBob,a drawing of the SpongeBob.
+230,SpongeBob,a photo of the large SpongeBob.
+231,SpongeBob,a black and white photo of a SpongeBob.
+232,SpongeBob,the plushie SpongeBob.
+233,SpongeBob,a dark photo of a SpongeBob.
+234,SpongeBob,itap of a SpongeBob.
+235,SpongeBob,graffiti of the SpongeBob.
+236,SpongeBob,a toy SpongeBob.
+237,SpongeBob,itap of my SpongeBob.
+238,SpongeBob,a photo of a cool SpongeBob.
+239,SpongeBob,a photo of a small SpongeBob.
+240,SpongeBob,a tattoo of the SpongeBob.
+241,Pikachu,a bad photo of a Pikachu.
+242,Pikachu,a photo of many Pikachu.
+243,Pikachu,a sculpture of a Pikachu.
+244,Pikachu,a photo of the hard to see Pikachu.
+245,Pikachu,a low resolution photo of the Pikachu.
+246,Pikachu,a rendering of a Pikachu.
+247,Pikachu,graffiti of a Pikachu.
+248,Pikachu,a bad photo of the Pikachu.
+249,Pikachu,a cropped photo of the Pikachu.
+250,Pikachu,a tattoo of a Pikachu.
+251,Pikachu,the embroidered Pikachu.
+252,Pikachu,a photo of a hard to see Pikachu.
+253,Pikachu,a bright photo of a Pikachu.
+254,Pikachu,a photo of a clean Pikachu.
+255,Pikachu,a photo of a dirty Pikachu.
+256,Pikachu,a dark photo of the Pikachu.
+257,Pikachu,a drawing of a Pikachu.
+258,Pikachu,a photo of my Pikachu.
+259,Pikachu,the plastic Pikachu.
+260,Pikachu,a photo of the cool Pikachu.
+261,Pikachu,a close-up photo of a Pikachu.
+262,Pikachu,a black and white photo of the Pikachu.
+263,Pikachu,a painting of the Pikachu.
+264,Pikachu,a painting of a Pikachu.
+265,Pikachu,a pixelated photo of the Pikachu.
+266,Pikachu,a sculpture of the Pikachu.
+267,Pikachu,a bright photo of the Pikachu.
+268,Pikachu,a cropped photo of a Pikachu.
+269,Pikachu,a plastic Pikachu.
+270,Pikachu,a photo of the dirty Pikachu.
+271,Pikachu,a jpeg corrupted photo of a Pikachu.
+272,Pikachu,a blurry photo of the Pikachu.
+273,Pikachu,a photo of the Pikachu.
+274,Pikachu,a good photo of the Pikachu.
+275,Pikachu,a rendering of the Pikachu.
+276,Pikachu,a Pikachu in a video game.
+277,Pikachu,a photo of one Pikachu.
+278,Pikachu,a doodle of a Pikachu.
+279,Pikachu,a close-up photo of the Pikachu.
+280,Pikachu,a photo of a Pikachu.
+281,Pikachu,the origami Pikachu.
+282,Pikachu,the Pikachu in a video game.
+283,Pikachu,a sketch of a Pikachu.
+284,Pikachu,a doodle of the Pikachu.
+285,Pikachu,a origami Pikachu.
+286,Pikachu,a low resolution photo of a Pikachu.
+287,Pikachu,the toy Pikachu.
+288,Pikachu,a rendition of the Pikachu.
+289,Pikachu,a photo of the clean Pikachu.
+290,Pikachu,a photo of a large Pikachu.
+291,Pikachu,a rendition of a Pikachu.
+292,Pikachu,a photo of a nice Pikachu.
+293,Pikachu,a photo of a weird Pikachu.
+294,Pikachu,a blurry photo of a Pikachu.
+295,Pikachu,a cartoon Pikachu.
+296,Pikachu,art of a Pikachu.
+297,Pikachu,a sketch of the Pikachu.
+298,Pikachu,a embroidered Pikachu.
+299,Pikachu,a pixelated photo of a Pikachu.
+300,Pikachu,itap of the Pikachu.
+301,Pikachu,a jpeg corrupted photo of the Pikachu.
+302,Pikachu,a good photo of a Pikachu.
+303,Pikachu,a plushie Pikachu.
+304,Pikachu,a photo of the nice Pikachu.
+305,Pikachu,a photo of the small Pikachu.
+306,Pikachu,a photo of the weird Pikachu.
+307,Pikachu,the cartoon Pikachu.
+308,Pikachu,art of the Pikachu.
+309,Pikachu,a drawing of the Pikachu.
+310,Pikachu,a photo of the large Pikachu.
+311,Pikachu,a black and white photo of a Pikachu.
+312,Pikachu,the plushie Pikachu.
+313,Pikachu,a dark photo of a Pikachu.
+314,Pikachu,itap of a Pikachu.
+315,Pikachu,graffiti of the Pikachu.
+316,Pikachu,a toy Pikachu.
+317,Pikachu,itap of my Pikachu.
+318,Pikachu,a photo of a cool Pikachu.
+319,Pikachu,a photo of a small Pikachu.
+320,Pikachu,a tattoo of the Pikachu.
+321,Hello Kitty,a bad photo of a Hello Kitty.
+322,Hello Kitty,a photo of many Hello Kitty.
+323,Hello Kitty,a sculpture of a Hello Kitty.
+324,Hello Kitty,a photo of the hard to see Hello Kitty.
+325,Hello Kitty,a low resolution photo of the Hello Kitty.
+326,Hello Kitty,a rendering of a Hello Kitty.
+327,Hello Kitty,graffiti of a Hello Kitty.
+328,Hello Kitty,a bad photo of the Hello Kitty.
+329,Hello Kitty,a cropped photo of the Hello Kitty.
+330,Hello Kitty,a tattoo of a Hello Kitty.
+331,Hello Kitty,the embroidered Hello Kitty.
+332,Hello Kitty,a photo of a hard to see Hello Kitty.
+333,Hello Kitty,a bright photo of a Hello Kitty.
+334,Hello Kitty,a photo of a clean Hello Kitty.
+335,Hello Kitty,a photo of a dirty Hello Kitty.
+336,Hello Kitty,a dark photo of the Hello Kitty.
+337,Hello Kitty,a drawing of a Hello Kitty.
+338,Hello Kitty,a photo of my Hello Kitty.
+339,Hello Kitty,the plastic Hello Kitty.
+340,Hello Kitty,a photo of the cool Hello Kitty.
+341,Hello Kitty,a close-up photo of a Hello Kitty.
+342,Hello Kitty,a black and white photo of the Hello Kitty.
+343,Hello Kitty,a painting of the Hello Kitty.
+344,Hello Kitty,a painting of a Hello Kitty.
+345,Hello Kitty,a pixelated photo of the Hello Kitty.
+346,Hello Kitty,a sculpture of the Hello Kitty.
+347,Hello Kitty,a bright photo of the Hello Kitty.
+348,Hello Kitty,a cropped photo of a Hello Kitty.
+349,Hello Kitty,a plastic Hello Kitty.
+350,Hello Kitty,a photo of the dirty Hello Kitty.
+351,Hello Kitty,a jpeg corrupted photo of a Hello Kitty.
+352,Hello Kitty,a blurry photo of the Hello Kitty.
+353,Hello Kitty,a photo of the Hello Kitty.
+354,Hello Kitty,a good photo of the Hello Kitty.
+355,Hello Kitty,a rendering of the Hello Kitty.
+356,Hello Kitty,a Hello Kitty in a video game.
+357,Hello Kitty,a photo of one Hello Kitty.
+358,Hello Kitty,a doodle of a Hello Kitty.
+359,Hello Kitty,a close-up photo of the Hello Kitty.
+360,Hello Kitty,a photo of a Hello Kitty.
+361,Hello Kitty,the origami Hello Kitty.
+362,Hello Kitty,the Hello Kitty in a video game.
+363,Hello Kitty,a sketch of a Hello Kitty.
+364,Hello Kitty,a doodle of the Hello Kitty.
+365,Hello Kitty,a origami Hello Kitty.
+366,Hello Kitty,a low resolution photo of a Hello Kitty.
+367,Hello Kitty,the toy Hello Kitty.
+368,Hello Kitty,a rendition of the Hello Kitty.
+369,Hello Kitty,a photo of the clean Hello Kitty.
+370,Hello Kitty,a photo of a large Hello Kitty.
+371,Hello Kitty,a rendition of a Hello Kitty.
+372,Hello Kitty,a photo of a nice Hello Kitty.
+373,Hello Kitty,a photo of a weird Hello Kitty.
+374,Hello Kitty,a blurry photo of a Hello Kitty.
+375,Hello Kitty,a cartoon Hello Kitty.
+376,Hello Kitty,art of a Hello Kitty.
+377,Hello Kitty,a sketch of the Hello Kitty.
+378,Hello Kitty,a embroidered Hello Kitty.
+379,Hello Kitty,a pixelated photo of a Hello Kitty.
+380,Hello Kitty,itap of the Hello Kitty.
+381,Hello Kitty,a jpeg corrupted photo of the Hello Kitty.
+382,Hello Kitty,a good photo of a Hello Kitty.
+383,Hello Kitty,a plushie Hello Kitty.
+384,Hello Kitty,a photo of the nice Hello Kitty.
+385,Hello Kitty,a photo of the small Hello Kitty.
+386,Hello Kitty,a photo of the weird Hello Kitty.
+387,Hello Kitty,the cartoon Hello Kitty.
+388,Hello Kitty,art of the Hello Kitty.
+389,Hello Kitty,a drawing of the Hello Kitty.
+390,Hello Kitty,a photo of the large Hello Kitty.
+391,Hello Kitty,a black and white photo of a Hello Kitty.
+392,Hello Kitty,the plushie Hello Kitty.
+393,Hello Kitty,a dark photo of a Hello Kitty.
+394,Hello Kitty,itap of a Hello Kitty.
+395,Hello Kitty,graffiti of the Hello Kitty.
+396,Hello Kitty,a toy Hello Kitty.
+397,Hello Kitty,itap of my Hello Kitty.
+398,Hello Kitty,a photo of a cool Hello Kitty.
+399,Hello Kitty,a photo of a small Hello Kitty.
+400,Hello Kitty,a tattoo of the Hello Kitty.
