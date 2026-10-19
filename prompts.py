@@ -24,25 +24,27 @@ def split_concepts(value: str, *, allow_empty: bool = False) -> list[str]:
     values = [x.strip() for x in value.split(",")]
     if not allow_empty and any(not x for x in values):
         raise ValueError("Concepts must be nonempty comma-separated names.")
+    if len(values) != len(set(values)):
+        raise ValueError("Concepts must be unique.")
     return values
 
 
-def templates_for(task: str) -> list[str]:
-    if task == "instance":
-        return list(imagenet_templates)
-    if task == "style":
-        return list(painting_templates)
-    raise ValueError(f"Unsupported task: {task}")
-
-
 def choose_templates(task: str, count: int, offset: int = 0) -> list[tuple[int, str]]:
-    templates = templates_for(task)
+    # templates = templates_for(task)
+    if task == "instance":
+        templates = list(imagenet_templates)
+    elif task == "style":
+        templates = list(painting_templates)
+    else:
+        raise ValueError(f"Unsupported task: {task}")
+
     if count < 0 or not 0 <= offset < len(templates):
         raise ValueError("Template count must be >= 0 and offset must be in range.")
+    
     end = len(templates) if count == 0 else min(offset + count, len(templates))
     return list(enumerate(templates))[offset:end]
 
-
+# 创建targets和anchors的pairs
 def build_pairs(
     targets: list[str],
     anchors: list[str],
@@ -56,6 +58,7 @@ def build_pairs(
         raise ValueError("Supply one anchor or one anchor per target.")
     if any(t.casefold() == a.casefold() for t, a in zip(targets, anchors)):
         raise ValueError("A target and its anchor cannot be identical.")
+    
     pairs = []
     for target, anchor in zip(targets, anchors):
         if contextual:
@@ -72,6 +75,7 @@ def pair_records(pairs: list[PromptPair]) -> list[dict]:
     return [asdict(pair) for pair in pairs]
 
 
+# load retain texts from csv or txt file, and filter out the texts that overlap with the targets
 def load_retain_texts(
     path: Path | None,
     column: str,
@@ -89,6 +93,7 @@ def load_retain_texts(
     else:
         texts = [x.strip() for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
     targets = [t.casefold() for t in targets]
+    
     result, seen = [], set()
     for text in texts:
         key = text.casefold()

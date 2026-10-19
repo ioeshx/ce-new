@@ -6,9 +6,12 @@ from dataclasses import dataclass
 import torch
 
 from prompts import aligned_positions
-from models import is_klein
 from sd import EditController, actual_kv_input
 from solver import solve_factors
+
+
+def is_klein(args):
+    return args.architecture == "flux" and args.flux_variant == "klein"
 
 
 @dataclass

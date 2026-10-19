@@ -8,10 +8,13 @@ import json
 from pathlib import Path
 import sys
 
-from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
 from models import DEFAULT_MODELS, architecture_from_metadata, is_klein, resolve_settings
-
+from models import backbone, build_updates, load_pipeline
+from sampling import render_comparison, sample_records
+from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
 from metrics import metrics_main
+
+import torch
 
 ROOT = Path(__file__).resolve().parent
 
@@ -27,7 +30,7 @@ def add_model_args(parser, *, model_default=None):
                         help="Model CPU offload with CUDA; default on for FLUX.2-klein, off otherwise.")
     parser.add_argument("--max-sequence-length", type=int, default=None, help="Text length: Klein 512, T5 256 by default.")
     parser.add_argument("--flux-variant", choices=["klein", "dev", "schnell"], default=None,
-                        help="Default klein (FLUX.2-klein-4B); dev/schnell retain FLUX.1 support.")
+                        help="Read from checkpoint when sampling; new FLUX models default to klein.")
 
 
 def add_sampling_args(parser):
@@ -45,7 +48,7 @@ def add_sampling_args(parser):
     parser.add_argument("--contents", default=None, help="Concepts/artists to visualize; default: erasure targets.")
     parser.add_argument("--modes", default="original,edit")
 
-
+# 验证采样用的参数
 def validate_sampling(args):
     if min(args.steps, args.batch_size, args.num_samples, args.cpu_threads) <= 0:
         raise ValueError("Steps, batch size, samples and CPU threads must be positive.")
@@ -143,9 +146,8 @@ def edit_main(argv=None):
         args.solve_device = args.solve_device or args.device
         validate_sampling(args)
         args.targets = split_concepts(args.target_concepts)
-        if len(set(t.casefold() for t in args.targets)) != len(args.targets):
-            raise ValueError("Targets must be unique.")
         anchors = split_concepts(args.anchor_concepts, allow_empty=True)
+
         if args.beta <= 0 or args.rank_rtol < 0 or args.retain_count < -1:
             raise ValueError("Invalid ridge, rank tolerance or retain count.")
         if args.preserve_rank is not None and args.preserve_rank < 0:
@@ -162,9 +164,9 @@ def edit_main(argv=None):
             raise ValueError("Invalid probe counts or judge timeout.")
         if args.selective_update and args.selection_judge == "vlm" and not (args.judge_base_url and args.judge_model):
             raise ValueError("VLM selection needs --judge-base-url and --judge-model.")
+        
         pairs = build_pairs(
-            args.targets, anchors, args.task, args.contextual_anchor, args.context_template_count,
-        )
+            args.targets, anchors, args.task, args.contextual_anchor, args.context_template_count)
         if args.retain_path is None:
             args.retain_path = ROOT / "data" / f"{args.task}.csv"
         else:
@@ -173,6 +175,8 @@ def edit_main(argv=None):
             args.retain_path, args.retain_column, args.targets, -1,
         ) if args.retain_count != 0 else []
         retains = all_retains if args.retain_count < 0 else all_retains[:args.retain_count]
+        
+        # holdout_retains: selective update 排序使用的非目标探测文本
         retained_set = set(retains)
         heldout_retains = [x for x in all_retains if x not in retained_set][:args.probe_retains]
         if not heldout_retains:
@@ -180,7 +184,7 @@ def edit_main(argv=None):
             heldout_retains = [
                 x for x in fallback if not any(t.casefold() in x.casefold() for t in args.targets)
             ][:args.probe_retains]
-        from sampling import sample_records
+        # contents用于生成
         contents = split_concepts(args.contents) if args.contents else args.targets
         records = sample_records(
             contents, args.task, args.sample_template_count, args.num_samples,
@@ -193,6 +197,7 @@ def edit_main(argv=None):
         output = new_output(args.output_dir, prefix, args.overwrite)
     except (ValueError, OSError) as error:
         parser.error(str(error))
+    
     config = dict(vars(args))
     write_json(output / "config.json", config)
     write_json(output / "prompt_pairs.json", pair_records(pairs))
@@ -201,10 +206,8 @@ def edit_main(argv=None):
     write_json(output / "generation_prompts.json", records)
     print(f"[plan] pairs={len(pairs)}, retain concepts={len(retains)}, final images/mode={len(records)}")
     print(f"[output] {output}", flush=True)
-    import torch
-    from models import backbone, build_updates, load_pipeline
-    from sampling import render_comparison
 
+    # edit begins
     torch.set_num_threads(args.cpu_threads)
     pipe = load_pipeline(args)
     controller, diagnostics = build_updates(pipe, pairs, retains, args)
@@ -224,6 +227,7 @@ def edit_main(argv=None):
         active, selection = run_selection(
             pipe, controller, pairs, heldout_retains, selection_records, output / "selection", args,
         )
+    
     controller.apply(active)
     controller.save(output / "checkpoint", {**metadata, "selection": selection})
     checkpoint = output / "checkpoint"
@@ -267,6 +271,7 @@ def sample_main(argv=None):
                         help="Save side-by-side composites; off for benchmark, on otherwise.")
     args = parser.parse_args(argv)
     try:
+        # sample 时会加载checkpoint的metadata.json，里面包含了architecture和base_model等信息，必须与命令行参数一致
         checkpoint = args.checkpoint.expanduser().resolve()
         checkpoint = checkpoint.parent if checkpoint.is_file() else checkpoint
         metadata = json.loads((checkpoint / "metadata.json").read_text(encoding="utf-8"))

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CASU2_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export HF_ENDPOINT=https://hf-mirror.com
+
 
 # Edit generation and metric settings here. Architecture selects the run directory;
 # the model and sampling defaults are read from the checkpoint by main.py.

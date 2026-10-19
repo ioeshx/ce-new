@@ -1,7 +1,6 @@
 """FLUX.2-klein: Qwen3 sequence entry; legacy FLUX.1: T5 + CLIP."""
 
-from conditioning import Entry, build_condition_updates
-from models import is_klein
+from conditioning import Entry, build_condition_updates, is_klein
 
 
 def build_updates(pipe, pairs, retains, args):

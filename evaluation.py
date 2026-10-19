@@ -111,7 +111,17 @@ def prepare_sample_plan(output, checkpoint, metadata, records, args):
     if args.resume and any(output.iterdir()):
         if not path.is_file():
             raise ValueError("Resume needs dataset.json from this sampler; use a new output directory.")
-        if comparable(json.loads(path.read_text())) != plan:
-            raise ValueError("Resume settings, checkpoint or prompts differ from dataset.json; use a new output directory.")
+        previous = comparable(json.loads(path.read_text()))
+        if previous != plan:
+            differences = [key for key in plan if key != "sampling" and previous.get(key) != plan[key]]
+            differences += [
+                f"sampling.{key}: {previous['sampling'].get(key)!r} -> {value!r}"
+                for key, value in plan["sampling"].items()
+                if previous["sampling"].get(key) != value
+            ]
+            raise ValueError(
+                "Resume settings, checkpoint or prompts differ from dataset.json: "
+                + "; ".join(differences) + ". Use a new output directory for a changed experiment."
+            )
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     return plan

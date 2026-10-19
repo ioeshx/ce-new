@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CASU2_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export HF_ENDPOINT=https://hf-mirror.com
+
 
 # Edit experiment settings here. Empty MODEL/RUN_ROOT uses the architecture default.
 PYTHON="python"
@@ -31,7 +33,7 @@ ERASE_OPTIONS=(
   --contextual-anchor
   --no-selective-update
 )
-
+# parse command line arguments, which override the above defaults.
 EXPERIMENT="${1:?Usage: erase.sh CASE [main.py erase options]}"
 shift
 EXTRA_ARGS=()
@@ -48,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     *) EXTRA_ARGS+=("$1"); shift ;;
   esac
 done
-
+# set target and anchor
 case "$EXPERIMENT" in
   instance_snoopy) TASK="instance"; TARGETS="Snoopy"; ANCHORS="$SNOOPY_ANCHOR" ;;
   instance_snoopy_mickey) TASK="instance"; TARGETS="Snoopy,Mickey"; ANCHORS="$SNOOPY_ANCHOR,$MICKEY_ANCHOR" ;;

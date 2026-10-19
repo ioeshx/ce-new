@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export HF_ENDPOINT=https://hf-mirror.com
+
 
 # Edit GPU assignments here; generation and metric settings are in sample.sh.
-NUM_GPUS=1
+NUM_GPUS=2
 DEVICE0="cuda:0"
 DEVICE1="cuda:1"
 case "$NUM_GPUS" in

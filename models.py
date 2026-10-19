@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-import importlib
 import torch
 
+from conditioning import is_klein
+from sd import build_updates as sd1_build_updates
+from sdxl import build_updates as sdxl_build_updates
+from sd3 import build_updates as sd3_build_updates
+from flux import build_updates as flux_build_updates
+
+from sd import load_pipeline as load_sd1
+
+# FLUX.2-klein requires Diffusers >=0.37.1.
+from diffusers import (
+    DPMSolverMultistepScheduler, 
+    FluxPipeline, Flux2KleinPipeline,   
+    StableDiffusion3Pipeline,
+    StableDiffusionXLPipeline,
+)
+
+# Model card for diffusers
 DEFAULT_MODELS = {
     "sd1": "CompVis/stable-diffusion-v1-4",
     "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -18,11 +34,6 @@ FLUX_MODELS = {
     "schnell": "black-forest-labs/FLUX.1-schnell",
 }
 
-
-def is_klein(args):
-    return args.architecture == "flux" and args.flux_variant == "klein"
-
-
 def architecture_from_metadata(metadata):
     architecture = metadata.get("architecture")
     if architecture is None:
@@ -35,8 +46,12 @@ def architecture_from_metadata(metadata):
     return architecture
 
 
+# 根据对应model设置参数
+# steps = 20(sd1,sdxl), 28(sd3, other flux), 4(flux-klein)
+# guidance_scale = 7.5(sd1), 5.0(sdxl), 7.0(sd3), 1.0(flux-klein), 3.5(flux)
 def resolve_settings(args, architecture=None):
     args.architecture = architecture or args.architecture or "sd1"
+    # set flux model
     if args.flux_variant is None:
         model_name = (args.sd_ckpt or "").lower()
         args.flux_variant = (
@@ -45,6 +60,8 @@ def resolve_settings(args, architecture=None):
             else "klein" if args.architecture == "flux" else "dev"
         )
     klein = is_klein(args)
+    # max seq len, sd ckpt
+    # steps, guidance_scale, height, width, model_cpu_offload, encode_batch_size, num_samples
     if args.max_sequence_length is None:
         args.max_sequence_length = 512 if klein else 256
     if args.sd_ckpt is None:
@@ -69,30 +86,26 @@ def resolve_settings(args, architecture=None):
     if hasattr(args, "num_samples") and args.num_samples is None:
         args.num_samples = 1
 
-
 def backbone(pipe, architecture):
     return pipe.unet if architecture in {"sd1", "sdxl"} else pipe.transformer
-
 
 def pipeline_device(pipe):
     return pipe._execution_device
 
-
+# dtype:
+# SD,SDXL: float16
+# SD3,flux: bfloat16
 def load_pipeline(args):
     if args.architecture == "sd1":
         if args.model_cpu_offload:
             raise ValueError("--model-cpu-offload is supported for SDXL/SD3/FLUX; SD1 keeps its original loader.")
-        from sd import load_pipeline as load_sd1
         pipe = load_sd1(args.sd_ckpt, args.device, args.dtype, args.local_files_only)
     else:
-        from diffusers import (
-            DPMSolverMultistepScheduler, FluxPipeline, StableDiffusion3Pipeline,
-            StableDiffusionXLPipeline,
-        )
         if args.device.startswith("cuda") and not torch.cuda.is_available():
             raise RuntimeError("CUDA is unavailable; use a GPU environment or explicitly --device cpu.")
         if args.model_cpu_offload and not args.device.startswith("cuda"):
             raise ValueError("Model CPU offload requires a CUDA execution device.")
+        # set dtype
         dtype = args.dtype
         if dtype == "auto":
             if not args.device.startswith("cuda"):
@@ -103,19 +116,17 @@ def load_pipeline(args):
                 dtype = "float16"
         if args.device == "cpu" and dtype == "float16":
             raise ValueError("Use float32 for CPU execution.")
-        classes = {"sdxl": StableDiffusionXLPipeline, "sd3": StableDiffusion3Pipeline, "flux": FluxPipeline}
+        # load pipeline
+        classes = {"sdxl": StableDiffusionXLPipeline, 
+                   "sd3": StableDiffusion3Pipeline, 
+                   "flux": FluxPipeline}
         if is_klein(args):
-            try:
-                from diffusers import Flux2KleinPipeline
-            except ImportError as error:
-                raise RuntimeError(
-                    "FLUX.2-klein requires Diffusers >=0.37.1. Install casu-2/requirements.txt."
-                ) from error
             classes["flux"] = Flux2KleinPipeline
         kwargs = dict(torch_dtype=getattr(torch, dtype), local_files_only=args.local_files_only)
         if args.architecture == "sdxl":
             kwargs["add_watermarker"] = False
         pipe = classes[args.architecture].from_pretrained(args.sd_ckpt, **kwargs)
+
         if args.architecture == "sdxl":
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         if args.architecture == "sd3" and pipe.text_encoder_3 is None:
@@ -129,6 +140,7 @@ def load_pipeline(args):
                     raise ValueError("Klein context width must match the concatenated three Qwen3 hidden layers.")
             elif actual_guidance != (args.flux_variant == "dev"):
                 raise ValueError("FLUX.1 variant does not match transformer.guidance_embeds; set --flux-variant dev/schnell.")
+        
         if args.model_cpu_offload:
             pipe.enable_model_cpu_offload(device=args.device)
         else:
@@ -136,14 +148,21 @@ def load_pipeline(args):
         pipe._casu_cpu_offload = args.model_cpu_offload
         pipe.set_progress_bar_config(disable=True)
         pipe.vae.enable_slicing()
+        
         for name in ("text_encoder", "text_encoder_2", "text_encoder_3", "unet", "transformer", "vae"):
             module = getattr(pipe, name, None)
             if module is not None:
                 module.eval()
+    
     pipe._casu_architecture = args.architecture
     return pipe
 
 
 def build_updates(pipe, pairs, retains, args):
-    adapter = importlib.import_module("sd" if args.architecture == "sd1" else args.architecture)
-    return adapter.build_updates(pipe, pairs, retains, args)
+    builders = {
+        "sd1": sd1_build_updates,
+        "sdxl": sdxl_build_updates,
+        "sd3": sd3_build_updates,
+        "flux": flux_build_updates,
+    }
+    return builders[args.architecture](pipe, pairs, retains, args)
