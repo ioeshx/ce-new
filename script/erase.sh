@@ -9,7 +9,6 @@ PYTHON="python"
 
 # models
 ARCHITECTURE="sd1"
-FLUX_VARIANT="klein"
 MODEL=""
 # general settings
 RUN_ROOT=""
@@ -41,8 +40,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --architecture) ARCHITECTURE="$2"; shift 2 ;;
     --architecture=*) ARCHITECTURE="${1#*=}"; shift ;;
-    --flux-variant) FLUX_VARIANT="$2"; shift 2 ;;
-    --flux-variant=*) FLUX_VARIANT="${1#*=}"; shift ;;
     --device) DEVICE="$2"; shift 2 ;;
     --device=*) DEVICE="${1#*=}"; shift ;;
     --run-root) RUN_ROOT="$2"; shift 2 ;;
@@ -63,7 +60,7 @@ esac
 
 MODEL_TAG="$ARCHITECTURE"
 if [[ "$ARCHITECTURE" == flux ]]; then 
-  MODEL_TAG="flux-$FLUX_VARIANT"; 
+  MODEL_TAG="flux-klein";
 fi
 if [[ -z "$RUN_ROOT" ]]; then 
   RUN_ROOT="$CASU2_DIR/runs/paper-$MODEL_TAG"; 
@@ -76,7 +73,6 @@ fi
 
 "$PYTHON" "$CASU2_DIR/main.py" erase \
   --architecture "$ARCHITECTURE" \
-  --flux-variant "$FLUX_VARIANT" \
   --task "$TASK" \
   --target-concepts "$TARGETS" \
   --anchor-concepts "$ANCHORS" \

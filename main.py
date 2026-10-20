@@ -1,4 +1,4 @@
-"""Unified command line for SD1.x, SDXL, SD3.0 and FLUX.2/FLUX.1."""
+"""Unified command line for SD1.x, SDXL, SD3.0 and FLUX.2-klein-4B."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import torch
 
-from models import DEFAULT_MODELS, architecture_from_metadata, is_klein, resolve_settings
+from models import DEFAULT_MODELS, architecture_from_metadata, resolve_settings
 from models import backbone, build_updates, load_pipeline
 from sampling import render_comparison, sample_records
 from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
@@ -31,14 +31,11 @@ def add_model_args(parser, *, model_default=None):
     parser.add_argument("--model-cpu-offload", action=argparse.BooleanOptionalAction, default=None,
                         help="Model CPU offload with CUDA; default on for FLUX.2-klein, off otherwise.")
     parser.add_argument("--max-sequence-length", type=int, default=None, help="Text length: Klein 512, T5 256 by default.")
-    parser.add_argument("--flux-variant", choices=["klein", "dev", "schnell"], default=None,
-                        help="Read from checkpoint when sampling; new FLUX models default to klein.")
 
 
 def add_sampling_args(parser):
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--guidance-scale", type=float, default=None)
-    parser.add_argument("--true-cfg-scale", type=float, default=1.0, help="FLUX true CFG, separate from embedded guidance.")
     parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -63,12 +60,8 @@ def validate_sampling(args):
     if args.architecture in {"sd3", "flux"} and (args.height % 16 or args.width % 16):
         raise ValueError("SD3/FLUX image dimensions must be multiples of 16.")
     if args.architecture == "flux":
-        if is_klein(args) and (args.guidance_scale != 1 or args.true_cfg_scale != 1 or args.negative_prompt):
-            raise ValueError("Distilled FLUX.2-klein-4B uses guidance-scale=1 without negative prompts or true CFG.")
-        if args.flux_variant == "schnell" and (args.guidance_scale != 0 or args.max_sequence_length > 256):
-            raise ValueError("FLUX.1-schnell requires guidance-scale=0 and max-sequence-length<=256.")
-        if args.true_cfg_scale < 1 or (args.negative_prompt and args.true_cfg_scale <= 1):
-            raise ValueError("FLUX negative prompts require --true-cfg-scale > 1; the default is no true CFG.")
+        if args.guidance_scale != 1 or args.negative_prompt:
+            raise ValueError("Distilled FLUX.2-klein-4B uses guidance-scale=1 without negative prompts.")
     modes = args.modes.replace(" ", "").split(",")
     if not modes or len(set(modes)) != len(modes) or set(modes) - {"original", "edit"}:
         raise ValueError("--modes must contain original, edit, or original,edit.")
@@ -173,7 +166,7 @@ def edit_main(argv=None):
             raise ValueError("max-fit-tokens must be nonnegative and encode-batch-size positive.")
         if args.architecture == "sd1" and args.condition_branches == "pooled":
             raise ValueError("SD1.x has no separate pooled-text injection branch.")
-        if is_klein(args) and args.condition_branches == "pooled":
+        if args.architecture == "flux" and args.condition_branches == "pooled":
             raise ValueError("FLUX.2-klein has no pooled-text branch; use tokens or both (sequence entry only).")
         if min(args.selection_template_count, args.selection_samples, args.probe_steps, args.probe_points) <= 0:
             raise ValueError("Selection/probe counts must be positive.")
@@ -362,8 +355,6 @@ def sample_main(argv=None):
         if args.sd_ckpt is not None and args.sd_ckpt != metadata["base_model"]:
             raise ValueError("--sd-ckpt must match the base model recorded in the checkpoint.")
         args.sd_ckpt = metadata["base_model"]
-        if args.flux_variant is None:
-            args.flux_variant = metadata.get("config", {}).get("flux_variant")
         if args.max_sequence_length is None:
             args.max_sequence_length = metadata.get("config", {}).get("max_sequence_length", 256)
         for name in ("height", "width", "steps", "guidance_scale"):

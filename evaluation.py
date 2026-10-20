@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 from sampling import sample_records
+from originals import normalized_sampling
 
 PAPER_CONTENTS = {
     "instance": ["Hello Kitty", "Mickey", "Pikachu", "Snoopy", "Spongebob"],
@@ -87,13 +88,13 @@ def dataset_records(args, metadata):
 def prepare_sample_plan(output, checkpoint, metadata, records, args):
     """A resume must match the checkpoint, prompt list and generation settings."""
     settings = {name: getattr(args, name) for name in (
-        "architecture", "sd_ckpt", "flux_variant", "max_sequence_length", "dtype", "device",
-        "steps", "guidance_scale", "true_cfg_scale", "negative_prompt", "height", "width",
+        "architecture", "sd_ckpt", "max_sequence_length", "dtype", "device",
+        "steps", "guidance_scale", "negative_prompt", "height", "width",
     )}
     # The same CUDA backend can run on a different physical GPU when a batch
     # changes from one worker to two. GPU ordinals are routing, not a new dataset.
     def comparable(value):
-        value = {**value, "sampling": dict(value["sampling"])}
+        value = {**value, "sampling": normalized_sampling(value["sampling"])}
         if re.fullmatch(r"cuda(?::[0-9]+)?", str(value["sampling"].get("device"))):
             value["sampling"]["device"] = "cuda"
         return value

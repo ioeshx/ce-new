@@ -52,7 +52,7 @@ bash script/sample.sh instance_snoopy
 
 在 `sample.sh` 开头设置 `ARCHITECTURE`、`DEVICE`、`SEED`、`SAMPLE_TEMPLATES`、`NUM_SAMPLES`、`BATCH_SIZE`、`WITH_METRICS` 和指标参数。分辨率、步数和 guidance 默认从检查点读取，也可放进 `SAMPLE_OPTIONS` 数组。
 
-`RUN_ROOT` 留空时按架构使用 `runs/paper-sd1`、`runs/paper-sdxl`、`runs/paper-sd3` 或 `runs/paper-flux-<变体>`。修改架构或实验根目录时，两份脚本使用一致的设置。所有入口可从其他工作目录调用；默认数据和输出定位到本项目，相对的自定义路径按当前工作目录解析。
+`RUN_ROOT` 留空时按架构使用 `runs/paper-sd1`、`runs/paper-sdxl`、`runs/paper-sd3` 或 `runs/paper-flux-klein`。修改架构或实验根目录时，两份脚本使用一致的设置。所有入口可从其他工作目录调用；默认数据和输出定位到本项目，相对的自定义路径按当前工作目录解析。
 
 ```bash
 # 临时覆盖 seed，不必修改环境变量。
@@ -104,7 +104,6 @@ bash script/erase.sh instance_snoopy --no-contextual-anchor --selective-update
 | SD1.x | 支持，U-Net 中间注意力层 | 同一组有深度顺序的注意力层 |
 | SDXL | 支持，U-Net 中间注意力层 | 同一组有深度顺序的注意力层；全局 pooled 入口不参与此规则 |
 | SD3.0 | 当前入口适配器没有中间 block 分组，明确报错 | `context_embedder` 和 `pooled_text` 两个入口分组 |
-| FLUX.1 | 同 SD3 | 序列文本与 pooled 文本入口两个分组 |
 | FLUX.2-klein | 当前仅一个入口，没有中间层分组 | 一个 `context_embedder`，需显式 `--su-max-fraction 1` |
 
 对 SD1/SDXL，两种方法以**一个 `attn2` 跨注意力层为选择单元**；`--params KV` 时同层 K/V 一起选，不分别计数。先按 U-Net 实际顺序 `down_blocks → mid_block → up_blocks` 排序，以 `mid_block` 为中心，按距离从近到远选取；等距离时先选 up 一侧。不会直接使用 `named_modules()` 的注册顺序。这里的“中间”是 U-Net 瓶颈附近的拓扑位置，属于经验性选择规则。SDXL 的 `add_embedding.text` 是没有深度位置的全局入口，`middle` 和按中间层扩展的 `vlm` 都保持它的原始权重；排除项写入 `layer_plan.json`。
@@ -178,9 +177,8 @@ python main.py erase --task instance \
 | SDXL base | 原生 encode_prompt 的双 CLIP penultimate hidden states 拼接，编辑 cross-attention K/V | add_embedding.linear_1 的 pooled 文本列，尺寸/裁剪列保持原值 |
 | SD3.0 | 原生 CLIP 拼接并补齐特征维，再与 T5 沿 token 轴拼接；编辑 context_embedder | time_text_embed.text_embedder.linear_1，接收双 CLIP pooled 拼接 |
 | FLUX.2-klein-4B | 原生 Qwen3 第 9/18/27 层表示拼接，7680 维；编辑 context_embedder | 无 pooled 文本分支 |
-| FLUX.1 | 原生 T5 token hidden states，编辑 context_embedder | time_text_embed.text_embedder.linear_1，接收 CLIP pooled hidden states |
 
-SD3/FLUX.1 当前默认两个选择单元：序列入口与 pooled 入口。Klein 只有 context_embedder 一个选择单元，both 和 tokens 均编辑该入口；pooled 会报错。它们的统一 SU 当前在这些入口组之间选择，不能进行 block 级筛选；旧 legacy 也可逐入口撤去更新。它们均只接受文本条件，不修改图像输入、时间/guidance 分支或 single-stream 共享权重。图像生成仍会受到文本条件变化影响，不能据此保证图像内容完全不变。
+SD3 当前默认两个选择单元：序列入口与 pooled 入口。Klein 只有 context_embedder 一个选择单元，both 和 tokens 均编辑该入口；pooled 会报错。它们的统一 SU 当前在这些入口组之间选择，不能进行 block 级筛选；旧 legacy 也可逐入口撤去更新。它们均只接受文本条件，不修改图像输入、时间/guidance 分支或 single-stream 共享权重。图像生成仍会受到文本条件变化影响，不能据此保证图像内容完全不变。
 
 表示由各管线自身的 encode_prompt 产生，不用 SD1.x 的 CLIP 最后一层代替其他架构的输入。SD3 的 CLIP 与 T5 分段对齐；T5 无 BOS，单独处理其首 token、EOS 和 padding。双 CLIP 的有效 token 位置需一致，但允许采用不同 padding ID，并保留各自原生的 padding 表示。
 
@@ -240,7 +238,7 @@ $$
 
 默认用一次原模型轨迹上的去噪响应代理排序，时间点覆盖整个采样过程。它只决定顺序，不作为擦除成功或停止判据；不使用旧 attention map 差值或固定 Top-K。也可选择 --selection-order forward、reverse 或 random。
 
-SDXL/SD3/FLUX 的排序在原生 pipeline 的真实 backbone 输入上取样，匹配 latent/timestep，再更换文本条件计算参考响应。它保留原生条件字段、FlowMatch scheduler 和各代 FLUX 的 latent 布局；比较的是 backbone 预测输出，作为排序代理，不是最终图像判别。Klein 输入原生 patched 4D 噪声，由管线内部生成 4D 位置编码和打包；不会套用 FLUX.1 的 3D packed 输入。采集轨迹时使用 latent 输出，不解码图片。
+SDXL/SD3/FLUX 的排序在原生 pipeline 的真实 backbone 输入上取样，匹配 latent/timestep，再更换文本条件计算参考响应。它保留原生条件字段、FlowMatch scheduler 和 FLUX.2-klein 的 latent 布局；比较的是 backbone 预测输出，作为排序代理，不是最终图像判别。Klein 输入原生 patched 4D 噪声，由管线内部生成 4D 位置编码和打包。采集轨迹时使用 latent 输出，不解码图片。
 
 固定顺序最多判断 n+1 个组合。首次失败即停止对顺序敏感，不声称得到全局最小模块集合。开启 SU 时同时保存 checkpoint_all，便于中断后仍可检查全更新模型。
 
@@ -330,6 +328,8 @@ bash -n script/paper_sample_all.sh
 
 ## 7. SDXL、SD3.0 和 FLUX
 
+FLUX 系列仅支持 `black-forest-labs/FLUX.2-klein-4B`。已删除变体选择和 true CFG 参数，命令只需 `--architecture flux`。现有 Klein 检查点、`runs/paper-flux-klein/` 和 `runs/original_FLUX/` 路径继续使用；旧配置中无实际作用的字段在比较时规范化，不会仅因这些字段被删除就重生成原图或拒绝续跑。
+
 在 `erase.sh` 和 `sample.sh` 开头修改 `ARCHITECTURE`，或使用命令行参数：
 
 ```bash
@@ -339,8 +339,8 @@ bash script/sample.sh instance_snoopy --architecture sdxl
 bash script/erase.sh style_van_gogh --architecture sd3 --model-cpu-offload
 bash script/sample.sh style_van_gogh --architecture sd3
 
-bash script/erase.sh instance_snoopy --architecture flux --flux-variant klein
-bash script/sample.sh instance_snoopy --architecture flux --flux-variant klein
+bash script/erase.sh instance_snoopy --architecture flux
+bash script/sample.sh instance_snoopy --architecture flux
 ```
 
 | 架构 | 默认模型 | 分辨率 | 步数 | guidance |
@@ -348,13 +348,11 @@ bash script/sample.sh instance_snoopy --architecture flux --flux-variant klein
 | sd1 | CompVis/stable-diffusion-v1-4 | 512×512 | 20 | 7.5 |
 | sdxl | stabilityai/stable-diffusion-xl-base-1.0 | 1024×1024 | 20 | 5 |
 | sd3 | stabilityai/stable-diffusion-3-medium-diffusers | 1024×1024 | 28 | 7 |
-| flux / klein | black-forest-labs/FLUX.2-klein-4B | 1024×1024 | 4 | 1 |
-| flux / dev | black-forest-labs/FLUX.1-dev | 1024×1024 | 28 | 3.5 |
-| flux / schnell | black-forest-labs/FLUX.1-schnell | 1024×1024 | 4 | 0 |
+| flux | black-forest-labs/FLUX.2-klein-4B | 1024×1024 | 4 | 1 |
 
 Python 统一解析这些默认值，Shell 不再维护另一套模型分支。Klein 在 CUDA 上默认开启模型 CPU offload，文本编码批次默认 1，最大文本长度 512；其他架构文本编码批次默认 4。CPU 默认 float32，CUDA 上 SDXL 默认 float16，SD3 / FLUX 在支持时默认 bfloat16。
 
-使用本地模型可设置 `erase.sh` 的 `MODEL`，或追加 `--sd-ckpt /path/to/model`。采样从检查点读取原始模型与架构，不需再指定模型路径。FLUX.1 使用 `--flux-variant dev` 或 `schnell`；Klein 使用 guidance=1，不能添加负提示或 true CFG。
+使用本地模型可设置 `erase.sh` 的 `MODEL`，或追加 `--sd-ckpt /path/to/model`。采样从检查点读取原始模型与架构，不需再指定模型路径。FLUX 固定使用 `black-forest-labs/FLUX.2-klein-4B`，本地目录须为 `Flux2KleinPipeline` 格式的该模型副本；guidance 必须为 1，不接受负提示。
 
 ## 8. 完整实验集与 CLIP / FID
 

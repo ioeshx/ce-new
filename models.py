@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import torch
 
-from conditioning import is_klein
 from sd import build_updates as sd1_build_updates
 from sdxl import build_updates as sdxl_build_updates
 from sd3 import build_updates as sd3_build_updates
@@ -13,7 +15,7 @@ from flux import build_updates as flux_build_updates
 # FLUX.2-klein requires Diffusers >=0.37.1.
 from diffusers import (
     DPMSolverMultistepScheduler, 
-    FluxPipeline, Flux2KleinPipeline,   
+    Flux2KleinPipeline,
     StableDiffusionPipeline,
     StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
@@ -27,12 +29,6 @@ DEFAULT_MODELS = {
     "flux": "black-forest-labs/FLUX.2-klein-4B",
 }
 
-FLUX_MODELS = {
-    "klein": DEFAULT_MODELS["flux"],
-    "dev": "black-forest-labs/FLUX.1-dev",
-    "schnell": "black-forest-labs/FLUX.1-schnell",
-}
-
 def architecture_from_metadata(metadata):
     architecture = metadata.get("architecture")
     if architecture is None:
@@ -42,46 +38,49 @@ def architecture_from_metadata(metadata):
         )
     if architecture not in DEFAULT_MODELS or metadata.get("format") != f"casu2-{architecture}-v1":
         raise ValueError("Not a supported CASU-2 checkpoint.")
+    if architecture == "flux" and metadata.get("config", {}).get("flux_variant", "klein") not in {None, "klein"}:
+        raise ValueError("FLUX checkpoints must use black-forest-labs/FLUX.2-klein-4B.")
     return architecture
 
 
+def validate_flux_source(model):
+    """Accept the supported Hub model or a local Diffusers copy of Klein."""
+    if model == DEFAULT_MODELS["flux"]:
+        return
+    directory = Path(model).expanduser()
+    index = directory / "model_index.json"
+    if not index.is_file() or json.loads(index.read_text(encoding="utf-8")).get("_class_name") != "Flux2KleinPipeline":
+        raise ValueError(
+            "FLUX supports only black-forest-labs/FLUX.2-klein-4B or a local Diffusers copy using Flux2KleinPipeline."
+        )
+
+
 # 根据对应model设置参数
-# steps = 20(sd1,sdxl), 28(sd3, other flux), 4(flux-klein)
-# guidance_scale = 7.5(sd1), 5.0(sdxl), 7.0(sd3), 1.0(flux-klein), 3.5(flux)
+# steps = 20(sd1,sdxl), 28(sd3), 4(flux)
+# guidance_scale = 7.5(sd1), 5.0(sdxl), 7.0(sd3), 1.0(flux)
 def resolve_settings(args, architecture=None):
     args.architecture = architecture or args.architecture or "sd1"
-    # set flux model
-    if args.flux_variant is None:
-        model_name = (args.sd_ckpt or "").lower()
-        args.flux_variant = (
-            "schnell" if "flux.1-schnell" in model_name
-            else "dev" if "flux.1-dev" in model_name
-            else "klein" if args.architecture == "flux" else "dev"
-        )
-    klein = is_klein(args)
+    flux = args.architecture == "flux"
     # max seq len, sd ckpt
     # steps, guidance_scale, height, width, model_cpu_offload, encode_batch_size, num_samples
     if args.max_sequence_length is None:
-        args.max_sequence_length = 512 if klein else 256
+        args.max_sequence_length = 512 if flux else 256
     if args.sd_ckpt is None:
         args.sd_ckpt = DEFAULT_MODELS[args.architecture]
-        if args.architecture == "flux":
-            args.sd_ckpt = FLUX_MODELS[args.flux_variant]
-    fast_flux = args.architecture == "flux" and args.flux_variant in {"klein", "schnell"}
     if args.steps is None:
-        args.steps = 4 if fast_flux else 28 if args.architecture in {"sd3", "flux"} else 20
+        args.steps = {"sd1": 20, "sdxl": 20, "sd3": 28, "flux": 4}[args.architecture]
     if args.guidance_scale is None:
-        args.guidance_scale = 1.0 if klein else 0.0 if fast_flux else {
-            "sd1": 7.5, "sdxl": 5.0, "sd3": 7.0, "flux": 3.5,
+        args.guidance_scale = {
+            "sd1": 7.5, "sdxl": 5.0, "sd3": 7.0, "flux": 1.0,
         }[args.architecture]
     if args.height is None:
         args.height = 512 if args.architecture == "sd1" else 1024
     if args.width is None:
         args.width = 512 if args.architecture == "sd1" else 1024
     if args.model_cpu_offload is None:
-        args.model_cpu_offload = klein and args.device.startswith("cuda")
+        args.model_cpu_offload = flux and args.device.startswith("cuda")
     if hasattr(args, "encode_batch_size") and args.encode_batch_size is None:
-        args.encode_batch_size = 1 if klein else 4
+        args.encode_batch_size = 1 if flux else 4
     if hasattr(args, "num_samples") and args.num_samples is None:
         args.num_samples = 1
 
@@ -95,6 +94,8 @@ def pipeline_device(pipe):
 # SD,SDXL: float16
 # SD3,flux: bfloat16
 def load_pipeline(args):
+    if args.architecture == "flux":
+        validate_flux_source(args.sd_ckpt)
     if args.device.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable; use a GPU environment or explicitly --device cpu.")
     if args.architecture == "sd1" and args.model_cpu_offload:
@@ -117,7 +118,7 @@ def load_pipeline(args):
         "sd1": StableDiffusionPipeline,
         "sdxl": StableDiffusionXLPipeline,
         "sd3": StableDiffusion3Pipeline,
-        "flux": Flux2KleinPipeline if is_klein(args) else FluxPipeline,
+        "flux": Flux2KleinPipeline,
     }
     kwargs = dict(torch_dtype=getattr(torch, dtype), local_files_only=args.local_files_only)
     if args.architecture == "sd1":
@@ -137,13 +138,10 @@ def load_pipeline(args):
         raise ValueError("SD3 adapter requires the T5 encoder; omitting it changes the conditioning problem.")
     if args.architecture == "flux":
         actual_guidance = bool(pipe.transformer.config.guidance_embeds)
-        if is_klein(args):
-            if pipe.text_encoder.config.model_type != "qwen3" or not pipe.config.is_distilled or actual_guidance:
-                raise ValueError("The klein adapter expects the distilled FLUX.2-klein-4B Qwen3 pipeline.")
-            if pipe.transformer.config.joint_attention_dim != pipe.text_encoder.config.hidden_size * 3:
-                raise ValueError("Klein context width must match the concatenated three Qwen3 hidden layers.")
-        elif actual_guidance != (args.flux_variant == "dev"):
-            raise ValueError("FLUX.1 variant does not match transformer.guidance_embeds; set --flux-variant dev/schnell.")
+        if pipe.text_encoder.config.model_type != "qwen3" or not pipe.config.is_distilled or actual_guidance:
+            raise ValueError("The flux adapter expects the distilled FLUX.2-klein-4B Qwen3 pipeline.")
+        if pipe.transformer.config.joint_attention_dim != pipe.text_encoder.config.hidden_size * 3:
+            raise ValueError("Klein context width must match the concatenated three Qwen3 hidden layers.")
 
     if args.model_cpu_offload:
         pipe.enable_model_cpu_offload(device=args.device)

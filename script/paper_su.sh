@@ -7,13 +7,12 @@ METHOD="${1:?Expected middle or vlm}"
 shift
 MODE="all"
 if [[ $# -gt 0 && "$1" != --* ]]; then MODE="$1"; shift; fi
-case "$METHOD" in middle|vlm) ;; *) echo "Unknown SD1 SU method: $METHOD" >&2; exit 2 ;; esac
+case "$METHOD" in middle|vlm) ;; *) echo "Unknown SU method: $METHOD" >&2; exit 2 ;; esac
 case "$MODE" in erase|sample|all) ;; *) echo "Usage: paper_su_${METHOD}.sh [erase|sample|all] [options]" >&2; exit 2 ;; esac
 
 # Edit these shell settings to match the server. Erasure always uses one GPU.
 # Sampling is dispatched by paper_sample_all.sh; edit NUM_GPUS/DEVICE0/DEVICE1 there.
 ARCHITECTURE="sd1"
-FLUX_VARIANT="klein"
 RUN_ROOT=""
 ERASE_DEVICE="cuda:0"
 EXPERIMENT="all"  # Or pass --experiment instance_snoopy, style_monet, etc.
@@ -29,8 +28,6 @@ while [[ $# -gt 0 ]]; do
     --device=*) ERASE_DEVICE="${1#*=}"; SAMPLE_ARGS+=("$1"); shift ;;
     --architecture) ARCHITECTURE="$2"; shift 2 ;;
     --architecture=*) ARCHITECTURE="${1#*=}"; shift ;;
-    --flux-variant) FLUX_VARIANT="$2"; shift 2 ;;
-    --flux-variant=*) FLUX_VARIANT="${1#*=}"; shift ;;
     --su-vlm-model|--su-vlm-image-size|--su-prompts|--su-min-fraction|--su-max-fraction|--selection-template-count|--selection-samples|--target-description|--sd-ckpt|--sd_ckpt|--params|--beta|--retain-count|--context-template-count|--condition-branches|--token-mode|--solve-device|--rank-rtol|--preserve-rank|--encode-batch-size)
       ERASE_ARGS+=("$1" "$2"); shift 2 ;;
     --su-vlm-model=*|--su-vlm-image-size=*|--su-prompts=*|--su-min-fraction=*|--su-max-fraction=*|--selection-template-count=*|--selection-samples=*|--target-description=*|--sd-ckpt=*|--sd_ckpt=*|--params=*|--beta=*|--retain-count=*|--context-template-count=*|--condition-branches=*|--token-mode=*|--solve-device=*|--rank-rtol=*|--preserve-rank=*|--encode-batch-size=*)
@@ -53,9 +50,9 @@ done
 
 case "$ARCHITECTURE" in sd1|sdxl|sd3|flux) ;; *) echo "Unknown architecture: $ARCHITECTURE" >&2; exit 2 ;; esac
 MODEL_TAG="$ARCHITECTURE"
-if [[ "$ARCHITECTURE" == flux ]]; then MODEL_TAG="flux-$FLUX_VARIANT"; fi
+if [[ "$ARCHITECTURE" == flux ]]; then MODEL_TAG="flux-klein"; fi
 if [[ -z "$RUN_ROOT" ]]; then RUN_ROOT="$CASU2_DIR/runs/paper-$MODEL_TAG-su-$METHOD"; fi
-COMMON=(--architecture "$ARCHITECTURE" --flux-variant "$FLUX_VARIANT" --run-root "$RUN_ROOT")
+COMMON=(--architecture "$ARCHITECTURE" --run-root "$RUN_ROOT")
 if [[ "$MODE" == erase || "$MODE" == all ]]; then
   # Last options deliberately enforce CA+SU and this wrapper's selection method.
   SU_ARGS=(--contextual-anchor --selective-update --selection-method "$METHOD")

@@ -378,7 +378,7 @@ def entry_plan(groups, minimum_fraction=0.5, maximum_fraction=0.75):
 
     Each group seeds one chain; grow cyclically in adapter declaration order.
     Deduplicate equal subsets. This is at most O(n^2) candidates, not 2**n.
-    For SD3/FLUX.1's two entries, 50%..75% gives both singleton candidates.
+    For SD3's two entries, 50%..75% gives both singleton candidates.
     """
     ordered = list(groups)
     minimum, maximum = group_counts(len(ordered), minimum_fraction, maximum_fraction)

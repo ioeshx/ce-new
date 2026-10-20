@@ -10,10 +10,6 @@ from editing import EditController, actual_kv_input
 from solver import solve_factors
 
 
-def is_klein(args):
-    return args.architecture == "flux" and args.flux_variant == "klein"
-
-
 @dataclass
 class Segment:
     name: str
@@ -66,7 +62,7 @@ class ConditionCache:
 
     def segments(self, text):
         p, arch = self.pipe, self.architecture
-        if is_klein(self.args):
+        if arch == "flux":
             return [self.klein_segment(text)]
         clip_length = int(p.tokenizer.model_max_length)
         clip = self.tokenize(p.tokenizer, text, clip_length, "clip")
@@ -82,14 +78,14 @@ class ConditionCache:
                 )
         if arch in {"sd1", "sdxl"}:
             return [clip]
-        tokenizer = p.tokenizer_3 if arch == "sd3" else p.tokenizer_2
+        tokenizer = p.tokenizer_3
         if tokenizer is None:
             raise ValueError("The T5 text branch is required; do not omit its tokenizer/encoder.")
         t5 = self.tokenize(
             tokenizer, text, self.args.max_sequence_length, "t5",
-            offset=clip_length if arch == "sd3" else 0, has_bos=False,
+            offset=clip_length, has_bos=False,
         )
-        return [clip, t5] if arch == "sd3" else [t5]
+        return [clip, t5]
 
     def klein_segment(self, text):
         """Match the native Qwen3 chat formatting, including assistant suffix.
@@ -140,7 +136,6 @@ class ConditionCache:
             chunk = pending[start:start + self.args.encode_batch_size]
             segments = [self.segments(text) for text in chunk]
             kwargs = dict(prompt=chunk, device=execution_device(self.pipe), num_images_per_prompt=1)
-            klein = is_klein(self.args)
             if self.architecture != "flux":
                 kwargs["do_classifier_free_guidance"] = False
             if self.architecture == "sd3":
@@ -149,7 +144,7 @@ class ConditionCache:
                 kwargs["max_sequence_length"] = self.args.max_sequence_length
             result = self.pipe.encode_prompt(**kwargs)
             tokens = result[0]
-            pooled = None if klein or self.architecture == "sd1" else result[1] if self.architecture == "flux" else result[2]
+            pooled = result[2] if self.architecture in {"sdxl", "sd3"} else None
             for i, text in enumerate(chunk):
                 expected = sum(len(s.ids) for s in segments[i])
                 if tokens.shape[1] != expected:

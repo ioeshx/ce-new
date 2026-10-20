@@ -14,7 +14,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from prompts import choose_templates
-from models import backbone, is_klein, pipeline_device
+from models import backbone, pipeline_device
 
 
 def slug(text: str) -> str:
@@ -37,16 +37,13 @@ def sample_records(concepts, task, template_count, samples, seed, offset=0):
 
 
 def pipeline_arguments(pipe, records, args):
-    """Native noise layouts: SD 4-D, FLUX.1 packed, Klein patched 4-D."""
+    """Native 4-D noise layouts for SD models and FLUX.2-klein."""
     architecture = getattr(args, "architecture", "sd1")
     model = backbone(pipe, architecture)
     device = pipeline_device(pipe)
     dtype = next(model.parameters()).dtype
     channels = int(model.config.in_channels)
-    klein = architecture == "flux" and is_klein(args)
-    if architecture == "flux" and not klein:
-        channels //= 4
-    scale = pipe.vae_scale_factor * (2 if klein else 1)
+    scale = pipe.vae_scale_factor * (2 if architecture == "flux" else 1)
     shape = (
         channels,
         args.height // scale, args.width // scale,
@@ -55,10 +52,6 @@ def pipeline_arguments(pipe, records, args):
         torch.randn(shape, generator=torch.Generator(device="cpu").manual_seed(r["seed"]))
         for r in records
     ]).to(device=device, dtype=dtype)
-    if architecture == "flux" and not klein:
-        if shape[1] % 2 or shape[2] % 2:
-            raise ValueError("FLUX latent dimensions must be even before 2x2 packing.")
-        noise = pipe._pack_latents(noise, len(records), channels, shape[1], shape[2])
     kwargs = dict(
         prompt=[r["prompt"] for r in records], height=args.height, width=args.width,
         num_inference_steps=args.steps, guidance_scale=args.guidance_scale, latents=noise,
@@ -66,15 +59,8 @@ def pipeline_arguments(pipe, records, args):
     )
     if architecture in {"sd3", "flux"}:
         kwargs["max_sequence_length"] = args.max_sequence_length
-    if klein:
-        # Flux2KleinPipeline accepts [B,128,H/16,W/16] and packs internally.
-        # Its distilled model has no pooled CLIP or true-CFG argument.
-        pass
-    elif architecture == "flux":
-        kwargs["true_cfg_scale"] = args.true_cfg_scale
-        if args.true_cfg_scale > 1:
-            kwargs["negative_prompt"] = [args.negative_prompt] * len(records)
-    else:
+    # Klein packs its patched 4-D noise internally and uses no negative prompt.
+    if architecture != "flux":
         kwargs["negative_prompt"] = [args.negative_prompt] * len(records)
     return kwargs
 

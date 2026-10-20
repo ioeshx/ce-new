@@ -28,6 +28,20 @@ def concept_folder(concept):
     return name
 
 
+def normalized_sampling(settings):
+    """Drop retired fields only when they had no effect on supported models.
+
+    This lets existing Klein/SD original PNGs and sampling plans remain reusable.
+    Unsupported old FLUX settings remain different rather than being aliased.
+    """
+    result = dict(settings)
+    if result.get("architecture") != "flux" or result.get("flux_variant") in {None, "klein"}:
+        result.pop("flux_variant", None)
+    if result.get("architecture") != "flux" or result.get("true_cfg_scale", 1) == 1:
+        result.pop("true_cfg_scale", None)
+    return result
+
+
 def original_config(pipe, args):
     from models import backbone
 
@@ -36,9 +50,9 @@ def original_config(pipe, args):
         "dtype": str(next(backbone(pipe, args.architecture).parameters()).dtype),
         "device": str(args.device).split(":", 1)[0],
         "steps": args.steps, "guidance_scale": args.guidance_scale,
-        "true_cfg_scale": args.true_cfg_scale, "negative_prompt": args.negative_prompt,
+        "negative_prompt": args.negative_prompt,
         "height": args.height, "width": args.width, "batch_size": args.batch_size,
-        "flux_variant": args.flux_variant, "max_sequence_length": args.max_sequence_length,
+        "max_sequence_length": args.max_sequence_length,
         "scheduler": {
             "class": type(pipe.scheduler).__name__,
             "config": {k: v for k, v in dict(pipe.scheduler.config).items() if not k.startswith("_")},
@@ -61,7 +75,7 @@ class OriginalImages:
             raise ValueError("Original task must be instance or style.")
         self.root = Path(root).expanduser().resolve()
         self.task = task
-        self.config = json.loads(json.dumps(config, default=str))
+        self.config = normalized_sampling(json.loads(json.dumps(config, default=str)))
 
     def render(self, pipe, records, args):
         from sampling import generate_images
@@ -87,7 +101,10 @@ class OriginalImages:
             config = {"task": self.task, "concept": items[0][1]["concept"],
                       "image_count": len(items), "sampling": self.config}
             config_path, manifest_path = directory / "config.json", directory / "manifest.json"
-            unchanged = read_json(config_path) == config and read_json(manifest_path) == manifest
+            previous = read_json(config_path)
+            if isinstance(previous, dict) and isinstance(previous.get("sampling"), dict):
+                previous = {**previous, "sampling": normalized_sampling(previous["sampling"])}
+            unchanged = previous == config and read_json(manifest_path) == manifest
             if not unchanged:
                 # Only this task/concept's generated PNGs are replaced.
                 for path in directory.glob("*.png"):

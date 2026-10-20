@@ -8,7 +8,6 @@ export HF_ENDPOINT=https://hf-mirror.com
 # the model and sampling defaults are read from the checkpoint by main.py.
 PYTHON="python"
 ARCHITECTURE="sd1"
-FLUX_VARIANT="klein"
 RUN_ROOT=""
 CHECKPOINT=""
 IMAGE_DIR=""
@@ -46,8 +45,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --architecture) ARCHITECTURE="$2"; shift 2 ;;
     --architecture=*) ARCHITECTURE="${1#*=}"; shift ;;
-    --flux-variant) FLUX_VARIANT="$2"; shift 2 ;;
-    --flux-variant=*) FLUX_VARIANT="${1#*=}"; shift ;;
     --run-root) RUN_ROOT="$2"; shift 2 ;;
     --run-root=*) RUN_ROOT="${1#*=}"; shift ;;
     --device) DEVICE="$2"; shift 2 ;;
@@ -68,7 +65,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 MODEL_TAG="$ARCHITECTURE"
-if [[ "$ARCHITECTURE" == flux ]]; then MODEL_TAG="flux-$FLUX_VARIANT"; fi
+if [[ "$ARCHITECTURE" == flux ]]; then MODEL_TAG="flux-klein"; fi
 if [[ -z "$RUN_ROOT" ]]; then RUN_ROOT="$CASU2_DIR/runs/paper-$MODEL_TAG"; fi
 if [[ -z "$CHECKPOINT" ]]; then CHECKPOINT="$RUN_ROOT/erase/$EXPERIMENT/checkpoint"; fi
 if [[ -z "$IMAGE_DIR" ]]; then IMAGE_DIR="$RUN_ROOT/images/$EXPERIMENT"; fi

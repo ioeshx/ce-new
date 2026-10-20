@@ -6,7 +6,7 @@ from collections import defaultdict
 import copy
 import torch
 
-from models import backbone, is_klein, pipeline_device
+from models import backbone, pipeline_device
 from sampling import pipeline_arguments
 
 
@@ -46,14 +46,13 @@ def capture(pipe, prompt, args, *, inputs_only=False, seed=None):
     selected = set(torch.linspace(0, args.probe_steps - 1, args.probe_points).round().int().tolist())
     shots, pending = [], {}
     calls = 0
-    double_calls = args.architecture == "flux" and not is_klein(args) and args.true_cfg_scale > 1
 
     def before(module, positional, keywords):
         nonlocal calls
-        step, positive = (calls // 2, calls % 2 == 0) if double_calls else (calls, True)
+        step = calls
         calls += 1
         pending.clear()
-        if inputs_only or (positive and step in selected):
+        if inputs_only or step in selected:
             snapshot = {
                 "positional": tree_map(positional, lambda t: t.detach().cpu().clone()),
                 "keywords": tree_map(keywords, lambda t: t.detach().cpu().clone()),
