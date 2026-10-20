@@ -15,7 +15,7 @@ from sampling import render_comparison, sample_records
 from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
 from metrics import metrics_main
 
-from sd import load_controller
+from editing import load_controller
 
 
 ROOT = Path(__file__).resolve().parent

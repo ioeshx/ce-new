@@ -10,12 +10,11 @@ from sdxl import build_updates as sdxl_build_updates
 from sd3 import build_updates as sd3_build_updates
 from flux import build_updates as flux_build_updates
 
-from sd import load_pipeline as load_sd1
-
 # FLUX.2-klein requires Diffusers >=0.37.1.
 from diffusers import (
     DPMSolverMultistepScheduler, 
     FluxPipeline, Flux2KleinPipeline,   
+    StableDiffusionPipeline,
     StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
 )
@@ -96,65 +95,71 @@ def pipeline_device(pipe):
 # SD,SDXL: float16
 # SD3,flux: bfloat16
 def load_pipeline(args):
-    if args.architecture == "sd1":
-        if args.model_cpu_offload:
-            raise ValueError("--model-cpu-offload is supported for SDXL/SD3/FLUX; SD1 keeps its original loader.")
-        pipe = load_sd1(args.sd_ckpt, args.device, args.dtype, args.local_files_only)
-    else:
-        if args.device.startswith("cuda") and not torch.cuda.is_available():
-            raise RuntimeError("CUDA is unavailable; use a GPU environment or explicitly --device cpu.")
-        if args.model_cpu_offload and not args.device.startswith("cuda"):
-            raise ValueError("Model CPU offload requires a CUDA execution device.")
-        # set dtype
-        dtype = args.dtype
-        if dtype == "auto":
-            if not args.device.startswith("cuda"):
-                dtype = "float32"
-            elif args.architecture in {"sd3", "flux"} and torch.cuda.is_bf16_supported():
-                dtype = "bfloat16"
-            else:
-                dtype = "float16"
-        if args.device == "cpu" and dtype == "float16":
-            raise ValueError("Use float32 for CPU execution.")
-        # load pipeline
-        classes = {"sdxl": StableDiffusionXLPipeline, 
-                   "sd3": StableDiffusion3Pipeline, 
-                   "flux": FluxPipeline}
-        if is_klein(args):
-            classes["flux"] = Flux2KleinPipeline
-        kwargs = dict(torch_dtype=getattr(torch, dtype), local_files_only=args.local_files_only)
-        if args.architecture == "sdxl":
-            kwargs["add_watermarker"] = False
-        pipe = classes[args.architecture].from_pretrained(args.sd_ckpt, **kwargs)
+    if args.device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("CUDA is unavailable; use a GPU environment or explicitly --device cpu.")
+    if args.architecture == "sd1" and args.model_cpu_offload:
+        raise ValueError("--model-cpu-offload is supported for SDXL/SD3/FLUX; SD1 runs on --device.")
+    if args.model_cpu_offload and not args.device.startswith("cuda"):
+        raise ValueError("Model CPU offload requires a CUDA execution device.")
 
-        if args.architecture == "sdxl":
-            pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-        if args.architecture == "sd3" and pipe.text_encoder_3 is None:
-            raise ValueError("SD3 adapter requires the T5 encoder; omitting it changes the conditioning problem.")
-        if args.architecture == "flux":
-            actual_guidance = bool(pipe.transformer.config.guidance_embeds)
-            if is_klein(args):
-                if pipe.text_encoder.config.model_type != "qwen3" or not pipe.config.is_distilled or actual_guidance:
-                    raise ValueError("The klein adapter expects the distilled FLUX.2-klein-4B Qwen3 pipeline.")
-                if pipe.transformer.config.joint_attention_dim != pipe.text_encoder.config.hidden_size * 3:
-                    raise ValueError("Klein context width must match the concatenated three Qwen3 hidden layers.")
-            elif actual_guidance != (args.flux_variant == "dev"):
-                raise ValueError("FLUX.1 variant does not match transformer.guidance_embeds; set --flux-variant dev/schnell.")
-        
-        if args.model_cpu_offload:
-            pipe.enable_model_cpu_offload(device=args.device)
+    dtype = args.dtype
+    if dtype == "auto":
+        if not args.device.startswith("cuda"):
+            dtype = "float32"
+        elif args.architecture in {"sd3", "flux"} and torch.cuda.is_bf16_supported():
+            dtype = "bfloat16"
         else:
-            pipe.to(args.device)
-        pipe._casu_cpu_offload = args.model_cpu_offload
-        pipe.set_progress_bar_config(disable=True)
-        pipe.vae.enable_slicing()
-        
-        for name in ("text_encoder", "text_encoder_2", "text_encoder_3", "unet", "transformer", "vae"):
-            module = getattr(pipe, name, None)
-            if module is not None:
-                module.eval()
-    
+            dtype = "float16"
+    if args.device == "cpu" and dtype == "float16":
+        raise ValueError("Use float32 for CPU execution.")
+
+    classes = {
+        "sd1": StableDiffusionPipeline,
+        "sdxl": StableDiffusionXLPipeline,
+        "sd3": StableDiffusion3Pipeline,
+        "flux": Flux2KleinPipeline if is_klein(args) else FluxPipeline,
+    }
+    kwargs = dict(torch_dtype=getattr(torch, dtype), local_files_only=args.local_files_only)
+    if args.architecture == "sd1":
+        kwargs.update(safety_checker=None, requires_safety_checker=False)
+    elif args.architecture == "sdxl":
+        kwargs["add_watermarker"] = False
+    pipe = classes[args.architecture].from_pretrained(args.sd_ckpt, **kwargs)
+
+    if args.architecture in {"sd1", "sdxl"}:
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+    if args.architecture == "sd1":
+        cross_dim = pipe.unet.config.cross_attention_dim
+        cross_dims = cross_dim if isinstance(cross_dim, (tuple, list)) else [cross_dim]
+        if int(pipe.text_encoder.config.hidden_size) != 768 or set(cross_dims) != {768}:
+            raise ValueError("This implementation targets SD1.x (768-D CLIP). SDXL/SD2/SD3/FLUX need adapters.")
+    if args.architecture == "sd3" and pipe.text_encoder_3 is None:
+        raise ValueError("SD3 adapter requires the T5 encoder; omitting it changes the conditioning problem.")
+    if args.architecture == "flux":
+        actual_guidance = bool(pipe.transformer.config.guidance_embeds)
+        if is_klein(args):
+            if pipe.text_encoder.config.model_type != "qwen3" or not pipe.config.is_distilled or actual_guidance:
+                raise ValueError("The klein adapter expects the distilled FLUX.2-klein-4B Qwen3 pipeline.")
+            if pipe.transformer.config.joint_attention_dim != pipe.text_encoder.config.hidden_size * 3:
+                raise ValueError("Klein context width must match the concatenated three Qwen3 hidden layers.")
+        elif actual_guidance != (args.flux_variant == "dev"):
+            raise ValueError("FLUX.1 variant does not match transformer.guidance_embeds; set --flux-variant dev/schnell.")
+
+    if args.model_cpu_offload:
+        pipe.enable_model_cpu_offload(device=args.device)
+    else:
+        pipe.to(args.device)
+    pipe._casu_cpu_offload = args.model_cpu_offload
     pipe._casu_architecture = args.architecture
+    pipe.set_progress_bar_config(disable=True)
+    if args.architecture == "sd1":
+        pipe.enable_attention_slicing()
+    else:
+        pipe.vae.enable_slicing()
+    for name in ("text_encoder", "text_encoder_2", "text_encoder_3", "unet", "transformer", "vae"):
+        module = getattr(pipe, name, None)
+        if module is not None:
+            module.eval()
     return pipe
 
 
