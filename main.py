@@ -122,6 +122,16 @@ def edit_parser():
     parser.add_argument("--solve-device", default=None, help="Closed-form solver device; defaults to --device.")
     # selective update
     parser.add_argument("--selective-update", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--selection-method", "--sd1-su-method", dest="selection_method",
+                        choices=["middle", "vlm", "legacy"], default=None,
+                        help="Shared SU: middle U-Net layers, staged VLM search, or legacy deletion. Default: SD1 middle, others legacy.")
+    parser.add_argument("--su-min-fraction", type=float, default=0.5)
+    parser.add_argument("--su-max-fraction", type=float, default=0.75,
+                        help="Upper candidate fraction. A one-entry adapter requires explicit 1 for VLM SU.")
+    parser.add_argument("--su-prompts", type=Path, help="VLM calibration JSON; default: data/su_prompts.json.")
+    parser.add_argument("--su-vlm-model", default="Qwen/Qwen2.5-VL-3B-Instruct",
+                        help="Local Transformers vision-language model, loaded after SD is unloaded.")
+    parser.add_argument("--su-vlm-image-size", type=int, default=448)
     parser.add_argument("--selection-order", choices=["proxy", "forward", "reverse", "random"], default="proxy")
     parser.add_argument("--selection-judge", choices=["manual", "vlm"], default="manual")
     parser.add_argument("--selection-template-count", type=int, default=3)
@@ -148,6 +158,8 @@ def edit_main(argv=None):
     args = parser.parse_args(argv)
     try:
         resolve_settings(args)
+        # Retain old defaults while sharing every selection workflow across models.
+        args.selection_method = args.selection_method or ("middle" if args.architecture == "sd1" else "legacy")
         args.solve_device = args.solve_device or args.device
         validate_sampling(args)
         args.targets = split_concepts(args.target_concepts)
@@ -167,7 +179,12 @@ def edit_main(argv=None):
             raise ValueError("Selection/probe counts must be positive.")
         if args.probe_points > args.probe_steps or args.probe_retains < 0 or args.judge_timeout <= 0:
             raise ValueError("Invalid probe counts or judge timeout.")
-        if args.selective_update and args.selection_judge == "vlm" and not (args.judge_base_url and args.judge_model):
+        staged_su = args.selective_update and args.selection_method != "legacy"
+        if not 0 < args.su_min_fraction <= args.su_max_fraction <= 1:
+            raise ValueError("SU fractions must satisfy 0 < --su-min-fraction <= --su-max-fraction <= 1.")
+        if args.su_vlm_image_size < 56:
+            raise ValueError("--su-vlm-image-size must be at least 56.")
+        if args.selective_update and not staged_su and args.selection_judge == "vlm" and not (args.judge_base_url and args.judge_model):
             raise ValueError("VLM selection needs --judge-base-url and --judge-model.")
         
         pairs = build_pairs(
@@ -198,6 +215,12 @@ def edit_main(argv=None):
         selection_records = sample_records(
             args.targets, args.task, args.selection_template_count, args.selection_samples, args.seed,
         )
+        if staged_su and args.selection_method == "vlm":
+            from selection import calibration_records
+            selection_records = calibration_records(
+                args.targets, args.task, args.selection_template_count,
+                args.selection_samples, args.seed, args.su_prompts,
+            )
         prefix = args.task if args.architecture == "sd1" else f"{args.architecture}-{args.task}"
         output = new_output(args.output_dir, prefix, args.overwrite)
     except (ValueError, OSError) as error:
@@ -216,8 +239,8 @@ def edit_main(argv=None):
     # torch.set_num_threads(args.cpu_threads)
     pipe = load_pipeline(args)
     controller, diagnostics = build_updates(pipe, pairs, retains, args)
+    candidate_group_count = len(controller.groups)
     active = set(controller.groups)
-    controller.apply(active)
     metadata = {
         "base_model": args.sd_ckpt, "task": args.task, "targets": args.targets,
         "architecture": args.architecture,
@@ -225,7 +248,58 @@ def edit_main(argv=None):
         "weight_dtype": str(next(backbone(pipe, args.architecture).parameters()).dtype).removeprefix("torch."),
     }
     selection = {"status": "disabled"}
-    if args.selective_update:
+    checkpoint = output / "checkpoint"
+    checkpoint_ready = False
+    if staged_su:
+        from selection import selection_plan
+        try:
+            plan = selection_plan(controller.groups, args.selection_method, args.su_min_fraction, args.su_max_fraction)
+        except ValueError as error:
+            parser.error(str(error))
+        selection_dir = output / "selection"
+        selection_dir.mkdir(parents=True, exist_ok=True)
+        write_json(selection_dir / "layer_plan.json", plan)
+        if args.selection_method == "middle":
+            active = set(plan["middle_groups"])
+            selection = {
+                "method": "middle", "status": "heuristic_no_judge", "unit_kind": plan["unit_kind"],
+                "total_groups": plan["total_groups"], "selected_group_count": len(active),
+                "total_layers": plan["total_layers"], "selected_layer_count": len(active),
+                "active_groups": sorted(active),
+            }
+            print(f"[SU:middle] updating {len(active)}/{plan['total_layers']} layers; no VLM", flush=True)
+        else:
+            from selection import prepare_candidates, judge_candidates, publish_candidate, release_cuda
+            # Explicit --overwrite must not leave an old successful checkpoint if calibration fails.
+            if checkpoint.exists():
+                import shutil
+                shutil.rmtree(checkpoint)
+            state = prepare_candidates(pipe, controller, plan, selection_records, selection_dir, args, metadata)
+            # Both references are significant: controller.parameters also owns U-Net tensors.
+            # Destroy all diffusion state before constructing the local VLM.
+            if getattr(pipe, "_casu_cpu_offload", False):
+                pipe.remove_all_hooks()
+            del controller, pipe
+            release_cuda()
+            print("[SU:memory] diffusion unloaded; loading VLM", flush=True)
+            chosen, selection = judge_candidates(state, selection_dir, args)
+            release_cuda()
+            if chosen is None:
+                write_json(output / "summary.json", {
+                    "checkpoint": None, "candidate_group_count": candidate_group_count,
+                    "selection": selection, "quality_metrics_run": False,
+                })
+                print(f"[SU] No verified candidate: {selection['status']}; see {selection_dir / 'judgments.json'}", flush=True)
+                return 2
+            publish_candidate(selection_dir, chosen, checkpoint, selection)
+            checkpoint_ready = True
+            active = set(chosen["active_groups"])
+            if args.generate:
+                # The judge has already been closed and its CUDA memory freed.
+                pipe = load_pipeline(args)
+                controller, _ = load_controller(backbone(pipe, args.architecture), checkpoint, args.architecture)
+    elif args.selective_update:
+        controller.apply(active)
         # A complete checkpoint survives interrupted or unavailable judging.
         controller.save(output / "checkpoint_all", {**metadata, "selection": {"status": "all_updates_unverified"}})
         from selection import run_selection
@@ -233,9 +307,9 @@ def edit_main(argv=None):
             pipe, controller, pairs, heldout_retains, selection_records, output / "selection", args,
         )
     
-    controller.apply(active)
-    controller.save(output / "checkpoint", {**metadata, "selection": selection})
-    checkpoint = output / "checkpoint"
+    if not checkpoint_ready:
+        controller.apply(active)
+        controller.save(checkpoint, {**metadata, "selection": selection})
     if args.checkpoint_path_file:
         args.checkpoint_path_file.parent.mkdir(parents=True, exist_ok=True)
         args.checkpoint_path_file.write_text(str(checkpoint), encoding="utf-8")
@@ -246,12 +320,12 @@ def edit_main(argv=None):
         print(f"[gallery] {output / 'images' / 'index.html'}", flush=True)
     write_json(output / "summary.json", {
         "checkpoint": str(checkpoint), "active_groups": sorted(active),
-        "candidate_group_count": len(controller.groups), "selection": selection,
+        "candidate_group_count": candidate_group_count, "selection": selection,
         "image_count_per_mode": len(records) if args.generate else 0,
         "quality_metrics_run": False,
     })
     
-    if args.selective_update and (
+    if args.selective_update and not staged_su and (
         not selection["initial_verified_clear"]
         or selection["status"] in {"judge_inconclusive", "all_updates_removed_check_judge"}
     ):

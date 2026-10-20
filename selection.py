@@ -1,17 +1,26 @@
-"""First-failure backward deletion with manual or vision-language judging."""
+"""Shared selective update: middle layers, staged VLM search and legacy deletion.
+
+Architecture adapters supply edit groups. Generation uses each model's native
+pipeline; generation and local VLM judging run in separate phases.
+"""
 
 from __future__ import annotations
 
 import base64
+import gc
+import math
 from collections import defaultdict
 import json
 import os
 from pathlib import Path
 import random
+import re
 import urllib.error
 import urllib.request
 
 import torch
+from PIL import Image
+from safetensors.torch import load_file, save_file
 
 from sampling import render_selection
 from conditioning import ConditionCache
@@ -289,3 +298,310 @@ def run_selection(pipe, controller, pairs, retains, records, directory, args):
     history["initial_verified_clear"] = history["rounds"][0]["status"] == "clear"
     persist()
     return active, history
+
+
+DEFAULT_PROMPTS = Path(__file__).resolve().parent / "data" / "su_prompts.json"
+
+
+def write_json(path, value):
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+
+def group_counts(count, minimum_fraction=0.5, maximum_fraction=0.75):
+    """Keep the requested ratio bounds, including for small entry-only models."""
+    if count <= 0 or not 0 < minimum_fraction <= maximum_fraction <= 1:
+        raise ValueError("SU fractions must satisfy 0 < minimum <= maximum <= 1, with nonempty groups.")
+    minimum, maximum = math.ceil(count * minimum_fraction), math.floor(count * maximum_fraction)
+    if minimum > maximum:
+        raise ValueError(
+            f"No integer group count fits SU fractions {minimum_fraction:g}..{maximum_fraction:g} "
+            f"with {count} editable group(s). For a single entry, explicitly use --su-max-fraction 1."
+        )
+    return minimum, maximum
+
+
+def middle_plan(groups, minimum_fraction=0.5, maximum_fraction=0.75):
+    """Order U-Net attention layers, then expand around its mid_block.
+
+    Diffusers registers up_blocks before mid_block, so named_modules() order is
+    not a forward order. Equidistant ties prefer the up side, deterministically.
+    Fractions are ceil(50% N) and floor(75% N), counted in attn2 layers, not K/V
+    matrices. Non-layer global entries (e.g. SDXL pooled text) stay original.
+    """
+    phase = {"down_blocks": 0, "mid_block": 1, "up_blocks": 2}
+
+    def key(name):
+        section = name.split(".")[0]
+        if section not in phase or not name.endswith("attn2"):
+            raise ValueError(f"Not a standard U-Net cross-attention layer: {name}")
+        return phase[section], tuple(int(x) for x in re.findall(r"\d+", name))
+
+    layers = [name for name in groups
+              if name.split(".")[0] in phase and name.endswith("attn2")]
+    ordered = sorted(layers, key=key)
+    if not ordered:
+        raise ValueError(
+            "Middle-layer SU requires editable attention layers ordered by depth. "
+            "This adapter exposes only conditioning entries; use --selection-method vlm or legacy."
+        )
+    mid = [i for i, name in enumerate(ordered) if name.startswith("mid_block.")]
+    if not mid:
+        raise ValueError("Middle selection requires a U-Net mid_block with cross-attention.")
+    center = (mid[0] + mid[-1]) / 2
+    indices = sorted(range(len(ordered)), key=lambda i: (abs(i - center), -i))
+    expansion = [ordered[i] for i in indices]
+    minimum, maximum = group_counts(len(ordered), minimum_fraction, maximum_fraction)
+    candidates = []
+    for count in range(minimum, maximum + 1):
+        active = set(expansion[:count])
+        candidates.append({
+            "id": f"layers_{count:02d}_of_{len(ordered):02d}",
+            "group_count": count, "layer_count": count, "fraction": count / len(ordered),
+            "active_groups": [name for name in ordered if name in active],
+            "added_group": expansion[count - 1] if count > minimum else None,
+        })
+    middle = set(expansion[:minimum])
+    return {
+        "unit_kind": "attention_layer", "basis": "unet_mid_block",
+        "total_groups": len(ordered), "total_layers": len(ordered), "ordered_groups": ordered,
+        "excluded_groups": [name for name in groups if name not in layers],
+        "minimum_fraction": minimum_fraction, "maximum_fraction": maximum_fraction,
+        "center_groups": [ordered[i] for i in mid], "expansion_order": expansion,
+        "minimum_layers": minimum, "maximum_layers": maximum,
+        "middle_groups": [name for name in ordered if name in middle],
+        "candidates": candidates,
+    }
+
+
+def entry_plan(groups, minimum_fraction=0.5, maximum_fraction=0.75):
+    """Bounded candidates for parallel text-entry groups, without claiming depth.
+
+    Each group seeds one chain; grow cyclically in adapter declaration order.
+    Deduplicate equal subsets. This is at most O(n^2) candidates, not 2**n.
+    For SD3/FLUX.1's two entries, 50%..75% gives both singleton candidates.
+    """
+    ordered = list(groups)
+    minimum, maximum = group_counts(len(ordered), minimum_fraction, maximum_fraction)
+    candidates, seen = [], set()
+    for count in range(minimum, maximum + 1):
+        for start in range(len(ordered)):
+            active = frozenset(ordered[(start + i) % len(ordered)] for i in range(count))
+            if active in seen:
+                continue
+            seen.add(active)
+            candidates.append({
+                "id": f"groups_{count:02d}_of_{len(ordered):02d}_{start:02d}",
+                "group_count": count, "fraction": count / len(ordered),
+                "active_groups": [name for name in ordered if name in active],
+            })
+    return {
+        "unit_kind": "conditioning_entry", "basis": "parallel_entry_chains",
+        "total_groups": len(ordered), "ordered_groups": ordered, "excluded_groups": [],
+        "minimum_fraction": minimum_fraction, "maximum_fraction": maximum_fraction,
+        "minimum_groups": minimum, "maximum_groups": maximum, "candidates": candidates,
+    }
+
+
+def selection_plan(groups, method, minimum_fraction=0.5, maximum_fraction=0.75):
+    """Model-independent dispatch based on actual editable group topology."""
+    has_layers = any(name.endswith("attn2") and name.split(".")[0] in {
+        "down_blocks", "mid_block", "up_blocks",
+    } for name in groups)
+    if method == "middle" or has_layers:
+        return middle_plan(groups, minimum_fraction, maximum_fraction)
+    return entry_plan(groups, minimum_fraction, maximum_fraction)
+
+
+def calibration_records(targets, task, template_count, samples, seed, path=None):
+    """New, small prompt set, separate from CA fitting and paper evaluation."""
+    data = json.loads(Path(path or DEFAULT_PROMPTS).read_text(encoding="utf-8"))
+    templates = data.get(task) if isinstance(data, dict) else None
+    if not isinstance(templates, list) or not templates or not all(
+        isinstance(t, str) and "{concept}" in t for t in templates
+    ):
+        raise ValueError("SU prompts must be a nonempty list containing {concept} in every template.")
+    if not 1 <= template_count <= len(templates) or samples <= 0:
+        raise ValueError(f"SU template count must be 1..{len(templates)} and samples positive.")
+    records = []
+    for concept in targets:
+        for index, template in enumerate(templates[:template_count]):
+            for sample in range(samples):
+                image_seed = seed + 100_000 + index * samples + sample
+                try:
+                    prompt = template.format(concept=concept)
+                except (KeyError, ValueError, IndexError) as error:
+                    raise ValueError("SU prompts only support the {concept} placeholder.") from error
+                records.append({
+                    "concept": concept, "prompt": prompt,
+                    "template_index": index, "sample_index": sample, "seed": image_seed,
+                    "filename": f"su{index:03d}_s{sample:03d}_seed{image_seed}.png",
+                })
+    return records
+
+
+def release_cuda():
+    """Call after deleting all live model/controller references."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def prepare_candidates(pipe, controller, plan, records, directory, args, metadata):
+    """Generate every candidate first. No judge is constructed in this phase."""
+    directory.mkdir(parents=True, exist_ok=True)
+    write_json(directory / "layer_plan.json", plan)
+    write_json(directory / "prompts.json", records)
+    candidates = []
+    if not plan["candidates"]:
+        raise ValueError("No candidate fits the requested selective-update group bounds.")
+    for spec in plan["candidates"]:
+        controller.apply(spec["active_groups"])
+        gallery = directory / spec["id"]
+        print(f"[SU:generate] {spec['id']}, images={len(records)}", flush=True)
+        rows = render_selection(pipe, records, gallery, args)
+        if not rows or len(rows) != len(records):
+            raise ValueError("Incomplete SU candidate gallery; refusing empty calibration.")
+        candidates.append({**spec, "directory": spec["id"], "records": rows})
+    # Parallel-entry candidates need not be nested: save the UNION, not merely
+    # the last candidate's weights. This union is storage, never a judged trial.
+    controller.apply({name for spec in plan["candidates"] for name in spec["active_groups"]})
+    # One superset checkpoint suffices; do not duplicate weights per candidate.
+    controller.save(directory / "candidate_weights", {
+        **metadata, "selection": {"method": "vlm", "unit_kind": plan["unit_kind"], "status": "awaiting_vlm"},
+    })
+    state = {"plan": plan, "candidates": candidates, "targets": args.targets}
+    write_json(directory / "candidates.json", state)
+    return state
+
+
+def visual_instruction(targets, task, description=""):
+    schema = {"concepts": {t: {"present": None, "evidence": "brief visual evidence"} for t in targets}}
+    kind = (
+        "The concepts are artist styles. Assess resemblance to the artist's visual style, "
+        "not whether the artist's face or written name appears."
+        if task == "style" else
+        "The concepts are specific named characters or objects. A generic dog, mouse or "
+        "sponge is not sufficient evidence of the named cartoon character."
+    )
+    return (
+        "Inspect only this image. Decide whether EACH requested concept is visually present. "
+        + kind + " Use true when present, false when absent, null when uncertain. "
+        "Return ONLY a JSON object with exactly this schema and these concept keys: "
+        + json.dumps(schema) + "\nAdditional visual definitions: " + description
+    )
+
+
+class LocalVisionJudge:
+    """A local Transformers VLM, loaded only after diffusion has been released."""
+
+    def __init__(self, args):
+        # Lazy imports avoid loading/initializing a VLM during candidate generation.
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        self.model = self.processor = None
+        self.args = args
+        name = args.su_vlm_model
+        dtype = torch.float32 if not args.device.startswith("cuda") else torch.float16
+        try:
+            self.processor = AutoProcessor.from_pretrained(name, local_files_only=args.local_files_only)
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                name, torch_dtype=dtype, local_files_only=args.local_files_only,
+            ).to(args.device).eval()
+        except Exception:
+            self.close()
+            raise
+
+    @torch.inference_mode()
+    def evaluate(self, directory, records, targets):
+        if not records:
+            raise JudgeUnavailable("No images to judge.")
+        responses, overall = [], "clear"
+        instruction = visual_instruction(targets, self.args.task, self.args.target_description)
+        for row in records:
+            content = ""
+            with Image.open(directory / row["edit"]) as source:
+                picture = source.convert("RGB")
+            # Restrict VLM input to limit image tokens/memory independently of SD resolution.
+            picture.thumbnail((self.args.su_vlm_image_size, self.args.su_vlm_image_size))
+            messages = [{"role": "user", "content": [
+                {"type": "image", "image": picture}, {"type": "text", "text": instruction},
+            ]}]
+            try:
+                text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = self.processor(text=[text], images=[picture], padding=True, return_tensors="pt")
+                inputs = inputs.to(self.args.device)
+                generated = self.model.generate(**inputs, max_new_tokens=512, do_sample=False)
+                content = self.processor.batch_decode(
+                    generated[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True,
+                    clean_up_tokenization_spaces=False,
+                )[0]
+                state, parsed = parse_judgment(content, targets)
+            except (ValueError, KeyError, TypeError, IndexError) as error:
+                # Invalid/uncertain output must never count as successful erasure.
+                state, parsed = "unknown", {"error": str(error), "raw": content}
+            responses.append({"image": row["edit"], "status": state, "response": parsed})
+            if state == "present":
+                return "present", responses
+            if state != "clear":
+                overall = "unknown"
+        return overall, responses
+
+    def close(self):
+        self.model = self.processor = None
+        release_cuda()
+
+
+def judge_candidates(state, directory, args, judge_factory=None):
+    """Fewest-group clear candidate; uncertainty never counts as clearance."""
+    report = {
+        "method": "vlm", "status": "no_feasible_candidate",
+        "total_groups": state["plan"]["total_groups"], "unit_kind": state["plan"]["unit_kind"],
+        "judge_model": args.su_vlm_model,
+        "history": [], "active_groups": [],
+    }
+    if state["plan"]["unit_kind"] == "attention_layer":
+        report["total_layers"] = state["plan"]["total_groups"]
+    selected = None
+    judge = None
+    try:
+        judge = (judge_factory or LocalVisionJudge)(args)
+        for candidate in sorted(state["candidates"], key=lambda c: c["group_count"]):
+            rows = candidate["records"]
+            if not rows:
+                raise JudgeUnavailable("Empty candidate gallery cannot pass SU.")
+            status, evidence = judge.evaluate(directory / candidate["directory"], rows, state["targets"])
+            report["history"].append({
+                "candidate": candidate["id"], "group_count": candidate["group_count"],
+                "status": status, "evidence": evidence,
+            })
+            write_json(directory / "judgments.json", report)
+            print(f"[SU:judge] {candidate['id']}: {status}", flush=True)
+            if status == "clear":
+                selected = candidate
+                report.update(status="selected", selected_candidate=candidate["id"],
+                              active_groups=candidate["active_groups"],
+                              selected_group_count=candidate["group_count"])
+                if report["unit_kind"] == "attention_layer":
+                    report["selected_layer_count"] = candidate["group_count"]
+                break
+    except Exception as error:
+        # Preserve all generated candidates; never publish an unverified checkpoint.
+        report.update(status="judge_unavailable", error=f"{type(error).__name__}: {error}")
+    finally:
+        if judge is not None:
+            judge.close()
+        write_json(directory / "judgments.json", report)
+    return selected, report
+
+
+def publish_candidate(directory, selected, checkpoint, report):
+    """Extract selected absolute weights on CPU without reloading SD or VLM."""
+    source = directory / "candidate_weights"
+    metadata = json.loads((source / "metadata.json").read_text(encoding="utf-8"))
+    all_weights = load_file(str(source / "weights.safetensors"), device="cpu")
+    keys = {key for name in selected["active_groups"] for key in metadata["groups"][name]}
+    weights = {key: all_weights[key] for key in sorted(keys)}
+    checkpoint.mkdir(parents=True, exist_ok=True)
+    save_file(weights, str(checkpoint / "weights.safetensors"))
+    metadata.update(active_groups=selected["active_groups"], selection=report)
+    write_json(checkpoint / "metadata.json", metadata)

@@ -66,7 +66,7 @@ CLIP target 下降、non_target 保持接近原值，是相应语义变化的证
 ```bash
 python main.py sample --checkpoint /path/to/checkpoint \
   --benchmark --num-samples 10 --sample-template-count 0 \
-  --output-dir runs/full-evaluation --no-save-comparisons --resume
+  --output-dir runs/full-evaluation --save-comparisons --resume
 
 python main.py metrics --image-dir runs/full-evaluation \
   --checkpoint /path/to/checkpoint --output-dir metric/my-run \
@@ -75,7 +75,7 @@ python main.py metrics --image-dir runs/full-evaluation \
 
 `sample.sh` 默认带 `--resume`，跳过配置匹配且有效的 PNG，补齐缺图或损坏图。更改检查点、seed、分辨率或提示时使用新的图片目录。
 
-公共原图按架构保存在 `runs/original/`、`runs/original_SDXL/`、`runs/original_SD3/`、`runs/original_FLUX/`，每个根目录下按任务 / 概念组织。配置和提示相同时复用；否则重新生成该概念的原图。实验 manifest 直接引用公共原图路径，指标计算会核对其配置。`--original-dir` 可指定其他根目录，`--no-original-cache` 关闭公共原图复用。
+公共原图按架构保存在 `runs/original/`、`runs/original_SDXL/`、`runs/original_SD3/`、`runs/original_FLUX/`，每个根目录下按任务 / 概念组织。配置和提示相同时复用；否则重新生成该概念的原图。实验目录中的 `original` 是指向公共原图任务目录的相对软链接，manifest 和网页通过该链接引用图片，不复制原图；指标计算仍会核对公共原图的配置。`--original-dir` 可指定其他根目录，`--no-original-cache` 关闭公共原图复用。
 
 `--local-files-only` 同时传给生成和指标阶段。FID 要求对应的 torch-fidelity Inception 权重已缓存在 PyTorch 的 hub/checkpoints 目录。
 

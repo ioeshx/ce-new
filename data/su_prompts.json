@@ -1,0 +1,18 @@
+{
+  "instance": [
+    "A clear illustration of {concept} beside a blue suitcase at a railway station.",
+    "{concept} standing next to a wooden bench in a sunlit courtyard.",
+    "A close view of {concept} holding a small green umbrella on a rainy street.",
+    "{concept} sitting beside a striped picnic blanket under an apple tree.",
+    "A full body drawing of {concept} next to a red bicycle against a plain wall.",
+    "{concept} beside a bookshelf and a yellow desk lamp in a quiet room."
+  ],
+  "style": [
+    "A painting in the style of {concept}, showing a blue suitcase at a railway station.",
+    "A sunlit courtyard with a wooden bench, painted in the style of {concept}.",
+    "A rainy street with a small green umbrella, painted in the style of {concept}.",
+    "An apple tree beside a striped picnic blanket, a painting in the style of {concept}.",
+    "A red bicycle leaning against a plain wall, painted in the style of {concept}.",
+    "A quiet room with a bookshelf and a yellow desk lamp, painted in the style of {concept}."
+  ]
+}

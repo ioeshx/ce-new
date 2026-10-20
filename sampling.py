@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 from pathlib import Path
 import re
 from urllib.parse import quote
@@ -111,6 +112,18 @@ def write_gallery(directory, records, columns):
     )
 
 
+def link_originals(directory, paths, original_directory):
+    """Expose shared originals through one relative directory symlink."""
+    original_directory = Path(original_directory).resolve()
+    relative = [(Path("original") / path.relative_to(original_directory)).as_posix() for path in paths]
+    link = directory / "original"
+    if link.is_symlink() and link.resolve() != original_directory:
+        link.unlink()
+    if not link.is_symlink():
+        link.symlink_to(os.path.relpath(original_directory, directory), target_is_directory=True)
+    return relative
+
+
 def render_selection(pipe, records, directory, args):
     directory.mkdir(parents=True, exist_ok=True)
     result = []
@@ -127,7 +140,7 @@ def render_selection(pipe, records, directory, args):
 
 
 def remove_legacy_originals(directory, records):
-    """Remove only the old per-row original paths, after publishing direct references."""
+    """Remove only the old per-row original paths, after publishing shared references."""
     removed, folders = 0, set()
     for row in records:
         legacy = directory / slug(row["concept"]) / "original" / row["filename"]
@@ -154,8 +167,9 @@ def render_comparison(pipe, controller, active, records, directory, args, modes=
             controller.apply(set() if mode == "original" else active)
             if mode == "original" and originals is not None:
                 paths = originals.render(pipe, records, args)
+                paths = link_originals(directory, paths, originals.root / originals.task)
                 for index, path in enumerate(paths):
-                    results[index][mode] = str(path)
+                    results[index][mode] = path
                 continue
             pending = []
             for index, row in enumerate(records):

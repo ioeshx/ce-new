@@ -2,7 +2,7 @@
 
 独立实现于本目录，不修改、不导入 aaai27/casu_code 的源码。支持闭式擦除、检查点保存、原模型与编辑模型的同噪声采样，以及 CLIP / FID 评价。
 
-统一 Python 入口为 `main.py erase`、`main.py sample` 和 `main.py metrics`。Shell 只保留五个脚本：
+统一 Python 入口为 `main.py erase`、`main.py sample` 和 `main.py metrics`。主要脚本：
 
 ```text
 script/
@@ -11,6 +11,9 @@ script/
   paper_erase_all.sh   # 依次调用 erase.sh，完成六组擦除
   paper_sample_all.sh  # 调用 sample.sh，单卡顺序运行或双卡分组运行
   paper_all.sh         # 选择 erase、sample 或先擦除再采样
+  paper_su_middle.sh   # SD1 / SDXL，CA + 中间 50% 注意力层 SU
+  paper_su_vlm.sh      # 各模型，CA + 实际可编辑分组的本地 VLM 候选搜索
+  paper_su.sh          # 上面两份 SU 脚本的公共参数分发，支持 --architecture
 ```
 
 参数直接在 `erase.sh`、`sample.sh` 开头修改，也可追加命令行参数；脚本不读取环境变量作为实验配置。各架构的默认模型和采样设置由 `models.py` 统一处理。凭据不属于实验配置，VLM API 密钥仍从指定的密钥环境变量读取。
@@ -24,6 +27,7 @@ script/
 | `conditioning.py` | 原生文本编码、token 对齐、输入矩阵构造和编辑权重组装 |
 | `solver.py` | 公共闭式求解；运行时统一调用 `solve_factors()` |
 | `editing.py` | 公共 K/V 工具、原始/编辑权重切换和检查点读写 |
+| `selection.py` | 统一的中间层选择、候选构造、分阶段 VLM 检测、旧逐层删除 |
 
 SD1 使用自己的 CLIP 最后一层输出，保留完整 token 对齐行，不应用 SDXL/SD3/FLUX 的拟合 token 预算。四种架构的检查点继续使用 `casu2-<架构>-v1` 格式，原有检查点可继续加载。
 
@@ -42,7 +46,7 @@ bash script/erase.sh instance_snoopy
 bash script/sample.sh instance_snoopy
 ```
 
-默认基础模型为 SD1.4，512×512、20 步、CFG 7.5。擦除脚本默认开启 contextual anchor、关闭 selective update。采样脚本默认每个提示 10 张，使用完整模板集，并开启续跑和公共原图复用。
+默认基础模型为 SD1.4，512×512、20 步、CFG 7.5。擦除脚本默认开启 contextual anchor、关闭 selective update。采样脚本默认每个提示 10 张，使用完整模板集，并开启续跑、公共原图复用和左右对照图保存。
 
 在 `erase.sh` 开头设置 `ARCHITECTURE`、`MODEL`、`DEVICE`、`SEED`、`PARAMS`、`BETA`、`RETAIN_COUNT` 和各目标的 anchor；`ERASE_OPTIONS` 数组可添加其他 Python 参数。`MODEL` 留空使用架构默认模型，指定本地模型时填写完整 Diffusers 目录。
 
@@ -78,8 +82,10 @@ bash script/erase.sh instance_snoopy --no-contextual-anchor --selective-update
 | 参数 | 默认值 | 含义 |
 | --- | --- | --- |
 | --contextual-anchor / --no-contextual-anchor | 开启 | 成对上下文拟合 / 独立概念提示拟合 |
-| --selective-update / --no-selective-update | 关闭 | 启用 / 关闭生成反馈的逐模块删除 |
-| --selection-judge manual / vlm | manual | 人工判定 / 多模态接口判定 |
+| --selective-update / --no-selective-update | 关闭 | 启用 / 关闭选择性更新 |
+| --selection-method middle / vlm / legacy | SD1 为 middle，其他架构为 legacy | 中间层 / VLM 候选搜索 / 旧逐层删除 |
+| --su-min-fraction / --su-max-fraction | 0.5 / 0.75 | 候选使用 ceil(min × N)..floor(max × N) 个分组 |
+| --selection-judge manual / vlm | manual | 旧逐层删除流程：人工判定 / 多模态接口判定 |
 | --params V / K / KV | V | SD1 / SDXL 的文本条件投影 |
 | --token-mode full / subject | full | 全文本序列 / 替换 token 跨度 |
 | --condition-branches both / tokens / pooled | both | 序列与 pooled 条件通路 |
@@ -87,7 +93,64 @@ bash script/erase.sh instance_snoopy --no-contextual-anchor --selective-update
 
 其他参数用 `python main.py erase --help` 查看。追加的普通参数覆盖脚本默认值，不再限制覆盖目标、任务或路径。
 
-开启 selective update 会增加生成次数。manual 模式在每轮打印图片网页路径并等待输入：`no` 表示均未见待擦除目标，接受删除；`yes` 表示目标出现，恢复更新并停止；`unknown` 表示无法确认，停止并保留上一轮。判别失败或缺少输入不会自动算作通过。
+所有模型使用同一份 `selection.py`，不再有 `sd1_selection.py`。统一参数为 `--selection-method`；旧的 `--sd1-su-method` 仅作为兼容别名。为兼容旧命令，未指定选择方法时 SD1 默认 `middle`，其他架构仍默认 `legacy`；两份新 SU 脚本会显式选择 `middle` 或 `vlm`。
+
+`middle` 直接选层并保存权重，无需输入，也不加载 VLM。`legacy` 的 manual 判别在每轮打印图片网页路径并等待输入：`no` 表示均未见待擦除目标，接受删除；`yes` 表示目标出现，恢复更新并停止；`unknown` 表示无法确认，停止并保留上一轮。
+
+### 统一 SU：模型分组与适用范围
+
+| 模型 | middle | vlm 的选择单元 |
+| --- | --- | --- |
+| SD1.x | 支持，U-Net 中间注意力层 | 同一组有深度顺序的注意力层 |
+| SDXL | 支持，U-Net 中间注意力层 | 同一组有深度顺序的注意力层；全局 pooled 入口不参与此规则 |
+| SD3.0 | 当前入口适配器没有中间 block 分组，明确报错 | `context_embedder` 和 `pooled_text` 两个入口分组 |
+| FLUX.1 | 同 SD3 | 序列文本与 pooled 文本入口两个分组 |
+| FLUX.2-klein | 当前仅一个入口，没有中间层分组 | 一个 `context_embedder`，需显式 `--su-max-fraction 1` |
+
+对 SD1/SDXL，两种方法以**一个 `attn2` 跨注意力层为选择单元**；`--params KV` 时同层 K/V 一起选，不分别计数。先按 U-Net 实际顺序 `down_blocks → mid_block → up_blocks` 排序，以 `mid_block` 为中心，按距离从近到远选取；等距离时先选 up 一侧。不会直接使用 `named_modules()` 的注册顺序。这里的“中间”是 U-Net 瓶颈附近的拓扑位置，属于经验性选择规则。SDXL 的 `add_embedding.text` 是没有深度位置的全局入口，`middle` 和按中间层扩展的 `vlm` 都保持它的原始权重；排除项写入 `layer_plan.json`。
+
+- `middle`：固定选 `ceil(0.5 × N)` 层。SD1.4 有 16 个 `attn2`，因此只更新 8 层。其余层保持原权重；不运行校准生成或 VLM。
+- `vlm`：U-Net 从同一组 50% 中间层开始，每次加入距 mid 最近的一个剩余层，直到 75%。SD1.4 的候选为 8、9、10、11、12 层。每组从同一原始权重应用绝对更新，使用相同提示和噪声，不累加前一候选的更新。
+
+对于只有并行文本入口的适配器，VLM 按实际入口分组构造候选，不将入口冒充为中间 block。以 SD3 的两个入口为例，默认 50%..75% 的整数范围只有 1，所以分别测试“仅序列入口”和“仅 pooled 入口”；若两者都无法擦除，搜索失败，默认不突破 75% 上限。可显式 `--su-max-fraction 1` 让双入口更新也成为候选。单入口模型同样需要显式上限 1，这种情况下没有减少入口数量，只能校准此更新是否通过。一般并行入口的候选按适配器声明顺序构造循环扩展链并去重，最多 O(N²) 个组合，不枚举 2^N 个集合；同样不保证全局最优组合。
+
+VLM 校准默认读取新增的 `data/su_prompts.json`，与 CA 拟合和正式评估的模板集分开。默认每个目标 3 个提示、每提示 1 张图；SD1.4 共 5 组候选，即每目标生成 15 张校准图。可通过 `--selection-template-count`（默认文件最多 6）、`--selection-samples` 或 `--su-prompts /path/to/prompts.json` 修改。正式 CLIP/FID 采样仍使用原论文评估集，不使用校准图。
+
+先生成**全部候选**的校准图，再删除 SD pipeline 和持有参数引用的 controller，回收对象、清空 CUDA 缓存，然后加载本地 VLM。默认模型 `Qwen/Qwen2.5-VL-3B-Instruct`，CUDA 上使用 FP16，单图检测，检测输入最长边 448。使用已有 Transformers 依赖，不需要启动常驻的 VLM 服务；首次使用需有模型文件或允许下载。用 `--su-vlm-model /path/to/vlm` 可以更换本地模型或模型 ID。
+
+按更新分组数从少到多检测，每张图检查所有待擦除概念；**全部图片、全部目标都明确为 absent** 时才通过，首个通过候选即最终选择。任一目标出现则该候选失败，无法判断/无效 JSON 也不算通过。如果直到上限都没有通过，退出码为 2，保留校准图和候选权重，但不发布 `checkpoint/`，后续采样不会误用未通过的候选。VLM 关闭并释放显存后，才会按需重新加载对应扩散模型生成最终对照图。
+
+```bash
+# 各自完成六组擦除，再生成完整评估集并计算 CLIP / FID；默认开启 CA。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_middle.sh all
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh all
+
+# SDXL 使用同一份选择代码与启动脚本。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_middle.sh all --architecture sdxl
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh all --architecture sdxl
+
+# SD3 使用实际入口分组；按需开启扩散模型 CPU offload。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh all \
+  --architecture sd3 --model-cpu-offload
+
+# FLUX.2-klein 当前只有一个入口，显式允许 100% 的入口更新。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh all \
+  --architecture flux --su-max-fraction 1
+
+# 先只跑 Snoopy，或拆开擦除与正式采样阶段。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh erase --experiment instance_snoopy
+bash /home/shx/code/ce-new/casu-2/script/paper_su_vlm.sh sample --experiment instance_snoopy
+
+# 重复消融实验使用新的目录；erase 与 sample 指定相同 run-root。
+bash /home/shx/code/ce-new/casu-2/script/paper_su_middle.sh all \
+  --run-root /home/shx/code/ce-new/casu-2/runs/paper-sd1-su-middle-v2
+```
+
+这两组脚本默认模型为 SD1.4，支持 `--architecture sd1|sdxl|sd3|flux`，保存到 `runs/paper-<模型标签>-su-<middle或vlm>/`，例如 `runs/paper-sdxl-su-middle/`、`runs/paper-sd3-su-vlm/`；SD1 的原有新实验目录名不变。检查点在 `erase/<实验>/checkpoint/`，正式图片在 `images/<实验>/`，指标在 `metric/<run-root目录名>/<实验>/`。不会覆盖 `runs/paper-sd1/` 等旧实验。各架构继续复用自己的公共原图目录，相同采样配置无需重复生成。重复运行同一根目录时，擦除默认拒绝非空目录；采样默认 `--resume`，只复用匹配权重和配置的结果，权重不同会报错。保留旧结果请用新且名称不同的 `--run-root`，避免使用 `--overwrite`。
+
+`--run-root` 不改变公共原图目录。如果改变 seed、采样步数、分辨率等原图配置，现有原图机制仍会覆盖不匹配的原图；若也要保留这些原图，请同时指定新的 `--original-dir /home/shx/code/ce-new/casu-2/runs/original_sd1_su_v2`。该参数只传给采样阶段。
+
+擦除与 VLM 校准始终单 GPU 顺序执行，GPU 可在 `paper_su.sh` 的 `ERASE_DEVICE` 修改。完整数据采样沿用 `paper_sample_all.sh` 中的 `NUM_GPUS`、`DEVICE0`、`DEVICE1` 分配。脚本额外参数会分发到相应阶段，例如 `--su-vlm-model` 只传给擦除，`--num-samples` 只传给正式采样，`--seed` 同时传给两阶段。
 
 自定义目标也可直接调用 Python：
 
@@ -117,7 +180,7 @@ python main.py erase --task instance \
 | FLUX.2-klein-4B | 原生 Qwen3 第 9/18/27 层表示拼接，7680 维；编辑 context_embedder | 无 pooled 文本分支 |
 | FLUX.1 | 原生 T5 token hidden states，编辑 context_embedder | time_text_embed.text_embedder.linear_1，接收 CLIP pooled hidden states |
 
-SD3/FLUX.1 当前默认两个选择单元：序列入口与 pooled 入口。Klein 只有 context_embedder 一个选择单元，both 和 tokens 均编辑该入口；pooled 会报错。开启 SU 时，Klein 当前只能判断是否可以撤去这个整体更新，不能进行 block 级筛选。它们均只接受文本条件，不修改图像输入、时间/guidance 分支或 single-stream 共享权重。图像生成仍会受到文本条件变化影响，不能据此保证图像内容完全不变。
+SD3/FLUX.1 当前默认两个选择单元：序列入口与 pooled 入口。Klein 只有 context_embedder 一个选择单元，both 和 tokens 均编辑该入口；pooled 会报错。它们的统一 SU 当前在这些入口组之间选择，不能进行 block 级筛选；旧 legacy 也可逐入口撤去更新。它们均只接受文本条件，不修改图像输入、时间/guidance 分支或 single-stream 共享权重。图像生成仍会受到文本条件变化影响，不能据此保证图像内容完全不变。
 
 表示由各管线自身的 encode_prompt 产生，不用 SD1.x 的 CLIP 最后一层代替其他架构的输入。SD3 的 CLIP 与 T5 分段对齐；T5 无 BOS，单独处理其首 token、EOS 和 padding。双 CLIP 的有效 token 位置需一致，但允许采用不同 padding ID，并保留各自原生的 padding 表示。
 
@@ -167,7 +230,7 @@ $$
 
 若保留空间满秩或目标没有可编辑方向，程序报错，不输出一个静默无效的“擦除成功”结论。metadata 中保存秩与数值约束诊断；这些不是图像效果指标。
 
-### Selective update
+### 统一选择器保留的 legacy 逐层删除流程
 
 1. 求出固定的全部候选更新。
 2. 全部启用，生成校准图片，判断初始组合。
@@ -183,12 +246,12 @@ SDXL/SD3/FLUX 的排序在原生 pipeline 的真实 backbone 输入上取样，�
 
 ## 4. 可选的多模态判别接口
 
-本版默认不调用任何接口。若已有本地多模态服务或兼容的视觉 chat API：
+旧逐层删除流程默认不调用接口。若已有本地多模态服务或兼容的视觉 chat API：
 
 ~~~bash
 # 如果服务需要鉴权，凭据仍通过 VLM_API_KEY 提供，不写入运行配置。
 bash script/erase.sh instance_snoopy \
-  --selective-update --selection-judge vlm \
+  --selective-update --selection-method legacy --selection-judge vlm \
   --judge-base-url "http://127.0.0.1:8000/v1" \
   --judge-model "your-vision-model" --selection-template-count 3 \
   --target-description "Snoopy: identify the specific Peanuts cartoon character, not every ordinary dog."
@@ -232,6 +295,8 @@ metric/paper-sd1/<实验名>/
 ```
 
 检查点只保存本项目的局部编辑权重及元数据，需要加载对应的原始基础模型。采样在原权重与编辑权重间切换，不另建一份模型。默认 original 与 edit 使用相同提示、seed 和初始噪声。
+
+`sample.sh` 默认传入 `--save-comparisons`，将原始模型图片放在左侧、编辑模型图片放在右侧，保存到 `runs/paper-<架构>/images/<实验名>/<概念>/compare/`。两个 `paper_sample_all` 脚本也使用此设置。已有图片在配置一致时通过 `--resume` 复用并补存对照图；只调用 `main.py sample --benchmark` 时，需要显式添加 `--save-comparisons`。
 
 需要采样其他检查点或输出到其他目录时：
 
@@ -302,7 +367,7 @@ Python 统一解析这些默认值，Shell 不再维护另一套模型分支。K
 
 CLIP 使用 `openai/clip-vit-base-patch16`，计算图片与完整生成提示的 100×cosine 均值。FID 使用 torch-fidelity 的 inception-v3-compat / 2048，逐概念比较 original 与 edit。结果含目标 / 非目标分组，详细定义见 [metric/README.md](metric/README.md)。
 
-公共原图按检查点架构分别保存在 `runs/original/`、`runs/original_SDXL/`、`runs/original_SD3/`、`runs/original_FLUX/`，每个根目录下按任务 / 概念保存。配置和提示相同时复用有效 PNG，改变采样配置时重新生成。实验 manifest 直接记录公共原图路径，编辑图片保存在本实验目录。
+公共原图按检查点架构分别保存在 `runs/original/`、`runs/original_SDXL/`、`runs/original_SD3/`、`runs/original_FLUX/`，每个根目录下按任务 / 概念保存。配置和提示相同时复用有效 PNG，改变采样配置时重新生成。实验目录中的 `original` 是指向公共原图任务目录的相对软链接，不复制图片；`manifest.json` 和 `index.html` 使用 `original/hello_kitty/000001.png` 这样的相对路径，编辑图片保存在本实验目录。
 
 ```bash
 # 自定义公共原图目录。

@@ -30,11 +30,11 @@ FID_METHOD="auto"
 METRIC_BATCH_SIZE=32
 METRIC_WORKERS=0
 # Add options such as --steps 20, --height 512, --original-dir /path here.
-# --save-comparisons:保存对照图片，左边原始右边编辑图片
+# --save-comparisons: 保存左右对照图，左边原始模型，右边编辑模型。
 SAMPLE_OPTIONS=(
   --resume
   --original-cache
-  --no-save-comparisons
+  --save-comparisons
 )
 
 METRIC_OPTIONS=()
