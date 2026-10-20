@@ -14,7 +14,7 @@ import urllib.request
 import torch
 
 from sampling import render_selection
-from sd import TextCache
+from conditioning import ConditionCache
 
 
 class JudgeUnavailable(RuntimeError):
@@ -141,12 +141,12 @@ def proxy_order(pipe, controller, pairs, retains, args):
     if getattr(args, "architecture", "sd1") != "sd1":
         from selection_proxy import proxy_order_generic
         return proxy_order_generic(pipe, controller, pairs, retains, args)
-    cache = TextCache(pipe)
+    cache = ConditionCache(pipe, "sd1", args)
     device = next(pipe.unet.parameters()).device
     dtype = next(pipe.unet.parameters()).dtype
 
     def encode(text):
-        return cache.get(text).hidden.unsqueeze(0).to(device=device, dtype=dtype)
+        return cache.get(text).tokens.unsqueeze(0).to(device=device, dtype=dtype)
 
     negative = encode(args.negative_prompt)
     chosen = {}

@@ -1,4 +1,4 @@
-"""Actual conditioning inputs for SDXL, SD3.0 and FLUX.2/FLUX.1."""
+"""Native text conditioning and shared closed-form updates for all architectures."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import torch
 
 from prompts import aligned_positions
-from sd import EditController, actual_kv_input
+from editing import EditController, actual_kv_input
 from solver import solve_factors
 
 
@@ -80,7 +80,7 @@ class ConditionCache:
                     "The concatenated CLIP encoders tokenize differently; this adapter "
                     "requires the standard shared CLIP tokenization."
                 )
-        if arch == "sdxl":
+        if arch in {"sd1", "sdxl"}:
             return [clip]
         tokenizer = p.tokenizer_3 if arch == "sd3" else p.tokenizer_2
         if tokenizer is None:
@@ -149,7 +149,7 @@ class ConditionCache:
                 kwargs["max_sequence_length"] = self.args.max_sequence_length
             result = self.pipe.encode_prompt(**kwargs)
             tokens = result[0]
-            pooled = None if klein else result[1] if self.architecture == "flux" else result[2]
+            pooled = None if klein or self.architecture == "sd1" else result[1] if self.architecture == "flux" else result[2]
             for i, text in enumerate(chunk):
                 expected = sum(len(s.ids) for s in segments[i])
                 if tokens.shape[1] != expected:
@@ -172,7 +172,8 @@ def capped_alignment(target, anchor, args):
         target.ids, anchor.ids, target.length, anchor.length,
         args.token_mode, args.include_padding, has_bos=target.has_bos, has_eos=target.has_eos,
     )
-    budget = args.max_fit_tokens
+    # SD1 historically fits every aligned token, including all padding rows.
+    budget = 0 if args.architecture == "sd1" else args.max_fit_tokens
     if budget and len(ti) > budget:
         try:
             changed, _ = aligned_positions(

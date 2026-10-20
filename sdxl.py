@@ -1,7 +1,7 @@
 """SDXL base: concatenated CLIP K/V plus pooled-text columns, not size IDs."""
 
 from conditioning import Entry, build_condition_updates
-from sd import candidate_groups
+from editing import candidate_groups
 
 
 def build_updates(pipe, pairs, retains, args):
