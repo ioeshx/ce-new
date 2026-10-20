@@ -93,6 +93,7 @@ def solve_transform(
         raise ValueError("beta must be positive and rank_rtol nonnegative.")
     if preserve_rank is not None and preserve_rank < 0:
         raise ValueError("preserve_rank must be nonnegative.")
+    
     xt = source.to(device=device, dtype=torch.float64)
     xa = anchor.to(device=device, dtype=torch.float64)
     xp = retain.to(device=device, dtype=torch.float64)
@@ -116,6 +117,7 @@ def solve_transform(
     a = xt @ z  # [N, null_dim]
     if a.norm() <= 1e-12 * xt.norm().clamp_min(1):
         raise ValueError("Target inputs have no usable direction in the preservation null space.")
+    
     gram = a.T @ a
     gram.diagonal().add_(beta)
     solved = torch.linalg.solve(gram, a.T)

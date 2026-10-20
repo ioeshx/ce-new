@@ -10,35 +10,36 @@ import torch
 
 from prompts import PromptPair, aligned_positions
 from solver import solve_transform
-
+from diffusers import DPMSolverMultistepScheduler, StableDiffusionPipeline
+from safetensors.torch import save_file, load_file
 
 def load_pipeline(model: str, device: str, dtype: str, local_only: bool = False):
-    from diffusers import DPMSolverMultistepScheduler, StableDiffusionPipeline
-
     if device.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable. Use a GPU environment or explicitly --device cpu.")
     if dtype == "auto":
         dtype = "float16" if device.startswith("cuda") else "float32"
     if device == "cpu" and dtype == "float16":
         raise ValueError("Use --dtype float32 for CPU inference.")
+    
     pipe = StableDiffusionPipeline.from_pretrained(
         model, torch_dtype=getattr(torch, dtype), local_files_only=local_only,
         safety_checker=None, requires_safety_checker=False,
     ).to(device)
-    cross_dim = pipe.unet.config.cross_attention_dim
-    cross_dims = cross_dim if isinstance(cross_dim, (tuple, list)) else [cross_dim]
-    if int(pipe.text_encoder.config.hidden_size) != 768 or set(cross_dims) != {768}:
-        raise ValueError("This implementation targets SD1.x (768-D CLIP). SDXL/SD2/SD3/FLUX need adapters.")
-    if getattr(pipe.unet.config, "addition_embed_type", None):
-        raise ValueError("Additional pooled-text conditioning needs a separate architecture adapter.")
-    if getattr(pipe.unet.config, "encoder_hid_dim_type", None):
-        raise ValueError("This checkpoint transforms encoder inputs before attention; adapter unsupported.")
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
     pipe.unet.eval()
     pipe.text_encoder.eval()
     pipe.vae.eval()
     pipe.set_progress_bar_config(disable=True)
     pipe.enable_attention_slicing()
+    
+    cross_dim = pipe.unet.config.cross_attention_dim
+    cross_dims = cross_dim if isinstance(cross_dim, (tuple, list)) else [cross_dim]
+    if int(pipe.text_encoder.config.hidden_size) != 768 or set(cross_dims) != {768}:
+        raise ValueError("This implementation targets SD1.x (768-D CLIP). SDXL/SD2/SD3/FLUX need adapters.")
+    # if getattr(pipe.unet.config, "addition_embed_type", None):
+    #     raise ValueError("Additional pooled-text conditioning needs a separate architecture adapter.")
+    # if getattr(pipe.unet.config, "encoder_hid_dim_type", None):
+    #     raise ValueError("This checkpoint transforms encoder inputs before attention; adapter unsupported.")
     return pipe
 
 
@@ -71,14 +72,17 @@ class TextCache:
                 kwargs["attention_mask"] = inputs.attention_mask.to(device)
             hidden = self.pipe.text_encoder(inputs.input_ids.to(device), **kwargs)[0]
             self.cache[text] = EncodedText(
-                hidden[0].detach().float().cpu(), inputs.input_ids[0].tolist(),
+                hidden[0].detach().float().cpu(), 
+                inputs.input_ids[0].tolist(),
                 int(inputs.attention_mask[0].sum()),
             )
         return self.cache[text]
 
 
 def candidate_groups(unet, params: str) -> dict[str, dict]:
-    """One selection unit per attention layer; K/V are removed together."""
+    """One selection unit per attention layer; K/V are removed together.
+        returns {group_name: {"parent": module, "weights": {param_name: tensor}}}
+    """
     groups = {}
     for name, parent in unet.named_modules():
         if not name.endswith("attn2"):
@@ -114,6 +118,9 @@ def module_inputs(
     parent, cache: TextCache, pairs: list[PromptPair], retains: list[str],
     token_mode: str, include_padding: bool, protect_null: bool,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Build K/V inputs for all cross-attention layers in a U-Net module.
+        returns (xt, xa, xp) for target, anchor, and retained concepts.
+    """
     source, anchor, protection = [], [], []
     for pair in pairs:
         target, reference = cache.get(pair.target_prompt), cache.get(pair.anchor_prompt)
@@ -137,9 +144,10 @@ def module_inputs(
 
 @torch.no_grad()
 def build_updates(pipe, pairs, retains, args):
+    # {group_name: {"parent": module, "weights": {param_name: tensor}}}
     groups = candidate_groups(pipe.unet, args.params)
     cache = TextCache(pipe)
-    transforms, original, updates, diagnostics = {}, {}, {}, {}
+    transforms, original, updated, diagnostics = {}, {}, {}, {}
     for group, entry in groups.items():
         parent = entry["parent"]
         # Standard SD1.x layers consume exactly the same text inputs. Reuse the
@@ -151,7 +159,9 @@ def build_updates(pipe, pairs, retains, args):
                 args.include_padding, args.protect_null,
             )
             transforms[input_key] = solve_transform(
-                xt, xa, xp, beta=args.beta, rank_rtol=args.rank_rtol,
+                xt, xa, xp, 
+                beta=args.beta, 
+                rank_rtol=args.rank_rtol,
                 preserve_rank=args.preserve_rank, device=args.solve_device,
             )
         transform, info = transforms[input_key]
@@ -163,10 +173,10 @@ def build_updates(pipe, pairs, retains, args):
             if not torch.isfinite(edited).all():
                 raise ValueError(f"Non-finite edited weight: {key}")
             original[key] = w
-            updates[key] = edited
+            updated[key] = edited
         print(f"[solve] {group}: retain rank={info['protected_rank']}, null dim={info['null_dim']}", flush=True)
     group_keys = {name: list(entry["weights"]) for name, entry in groups.items()}
-    return EditController(pipe.unet, original, updates, group_keys), diagnostics
+    return EditController(pipe.unet, original, updated, group_keys), diagnostics
 
 
 class EditController:
@@ -188,6 +198,7 @@ class EditController:
         active = set(active)
         if active - self.groups.keys():
             raise ValueError(f"Unknown groups: {sorted(active - self.groups.keys())}")
+        
         enabled_keys = {key for group in active for key in self.groups[group]}
         for key in self.edited:
             tensor = self.edited[key] if key in enabled_keys else self.original[key]
@@ -195,12 +206,12 @@ class EditController:
         self.active = active
 
     def save(self, directory: Path, metadata: dict):
-        from safetensors.torch import save_file
-
         directory.mkdir(parents=True, exist_ok=True)
+        # save weights only for active groups, to reduce checkpoint size
         active_keys = {key for group in self.active for key in self.groups[group]}
         weights = {k: self.edited[k].contiguous().cpu() for k in sorted(active_keys)}
         save_file(weights, str(directory / "weights.safetensors"))
+        # save info
         info = {
             **metadata, "format": f"casu2-{self.architecture}-v1",
             "architecture": self.architecture,
@@ -212,8 +223,6 @@ class EditController:
 
 
 def load_controller(unet, directory: Path, architecture="sd1"):
-    from safetensors.torch import load_file
-
     directory = directory.parent if directory.is_file() else directory
     metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
     if metadata.get("format") != f"casu2-{architecture}-v1":

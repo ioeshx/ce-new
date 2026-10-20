@@ -75,7 +75,7 @@ def pair_records(pairs: list[PromptPair]) -> list[dict]:
     return [asdict(pair) for pair in pairs]
 
 
-# load retain texts from csv or txt file, and filter out the texts that overlap with the targets
+# 加载retain文本，排除与targets重复的文本
 def load_retain_texts(
     path: Path | None,
     column: str,
@@ -135,17 +135,17 @@ def aligned_positions(
     matcher = difflib.SequenceMatcher(a=source, b=reference, autojunk=False)
     ti, ai = [], []
     for tag, i0, i1, j0, j1 in matcher.get_opcodes():
-        if tag == "insert" or (mode == "subject" and tag == "equal"):
+        if tag == "insert" or (mode == "subject" and tag == "equal"): # insert:acchor多出， subject&equal:只处理subject的部分
             continue
-        if tag == "equal":
+        if tag == "equal":  # full mode下所有token
             matches = list(range(j0, j1))
-        elif j0 == j1:
+        elif j0 == j1:      # delete:anchor少了， 使用anchor中删除后面一个
             # Removed concept: use the next available token, or EOS.
             last = len(reference) if has_eos else max(0, len(reference) - 1)
             matches = [min(j0, last)] * (i1 - i0)
-        elif i1 - i0 == 1:
+        elif i1 - i0 == 1: # target中只有一个token，使用anchor替代片段最后一个
             matches = [j1 - 1]
-        else:
+        else: # target中有多个token，使用anchor替代片段的线性插值
             matches = [
                 j0 + round(k * (j1 - j0 - 1) / (i1 - i0 - 1))
                 for k in range(i1 - i0)

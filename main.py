@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sys
+import torch
 
 from models import DEFAULT_MODELS, architecture_from_metadata, is_klein, resolve_settings
 from models import backbone, build_updates, load_pipeline
@@ -14,7 +15,8 @@ from sampling import render_comparison, sample_records
 from prompts import build_pairs, load_retain_texts, pair_records, split_concepts
 from metrics import metrics_main
 
-import torch
+from sd import load_controller
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -106,8 +108,11 @@ def edit_parser():
     parser.add_argument("--encode-batch-size", type=int, default=None, help="Klein defaults to 1; other architectures to 4.")
     # hyperparameter
     parser.add_argument("--params", choices=["V", "K", "KV"], default="V")
+    # beta 限制权重更新幅度
     parser.add_argument("--beta", type=float, default=1.0)
+    # 只保留retain矩阵中，奇异值比 最大奇异值的rank_rtol倍大奇异值对应的向量，其他向量被丢弃
     parser.add_argument("--rank-rtol", type=float, default=1e-6)
+    # preserve_rank: 如果不为None，则在计算retain矩阵的奇异值分解时，保留的奇异值个数不能超过preserve_rank
     parser.add_argument("--preserve-rank", type=int, default=None, help="Optional explicit rank truncation; relaxes full retain protection.")
     # path
     parser.add_argument("--protect-null", action=argparse.BooleanOptionalAction, default=True)
@@ -207,8 +212,8 @@ def edit_main(argv=None):
     print(f"[plan] pairs={len(pairs)}, retain concepts={len(retains)}, final images/mode={len(records)}")
     print(f"[output] {output}", flush=True)
 
-    # edit begins
-    torch.set_num_threads(args.cpu_threads)
+    # edit begins here
+    # torch.set_num_threads(args.cpu_threads)
     pipe = load_pipeline(args)
     controller, diagnostics = build_updates(pipe, pairs, retains, args)
     active = set(controller.groups)
@@ -235,6 +240,7 @@ def edit_main(argv=None):
         args.checkpoint_path_file.parent.mkdir(parents=True, exist_ok=True)
         args.checkpoint_path_file.write_text(str(checkpoint), encoding="utf-8")
     print(f"[checkpoint] {checkpoint}", flush=True)
+    # 生成对比html
     if args.generate:
         render_comparison(pipe, controller, active, records, output / "images", args, args.modes)
         print(f"[gallery] {output / 'images' / 'index.html'}", flush=True)
@@ -244,6 +250,7 @@ def edit_main(argv=None):
         "image_count_per_mode": len(records) if args.generate else 0,
         "quality_metrics_run": False,
     })
+    
     if args.selective_update and (
         not selection["initial_verified_clear"]
         or selection["status"] in {"judge_inconclusive", "all_updates_removed_check_judge"}
@@ -312,12 +319,9 @@ def sample_main(argv=None):
     write_json(output / "config.json", vars(args))
     write_json(output / "generation_prompts.json", records)
     print(f"[dataset] {len(records)} images/mode; output={output}", flush=True)
-    import torch
-    from sd import load_controller
-    from models import backbone, load_pipeline
-    from sampling import render_comparison
 
-    torch.set_num_threads(args.cpu_threads)
+
+    # torch.set_num_threads(args.cpu_threads)
     pipe = load_pipeline(args)
     controller, metadata = load_controller(backbone(pipe, args.architecture), checkpoint, args.architecture)
     active = set(metadata["active_groups"])
